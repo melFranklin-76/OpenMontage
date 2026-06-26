@@ -140,12 +140,24 @@ class TestCapabilityMetadata:
         reg.register(ElevenLabsTTS())
         reg.register(OpenAITTS())
         reg.register(PiperTTS())
+        reg.register(TTSSelector())
+
         catalog = reg.capability_catalog()
         assert "tts" in catalog
-        providers = {item["provider"] for item in catalog["tts"] if item["provider"] != "selector"}
-        assert providers == {"elevenlabs", "google_tts", "openai", "piper"}
 
+        providers = {
+            item["provider"]
+            for item in catalog["tts"]
+            if item["provider"] != "selector"
+        }
 
+        assert providers == {
+            "doubao",
+            "elevenlabs",
+            "google_tts",
+            "openai",
+            "piper",
+        }
 # ---- Animated Explainer Pipeline ----
 
 class TestAnimatedExplainerManifest:

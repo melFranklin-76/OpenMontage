@@ -1373,9 +1373,7 @@ class VideoCompose(BaseTool):
             self.run_command(cmd, timeout=600, cwd=composer_dir)
         except Exception as e:
             return ToolResult(success=False, error=f"Remotion render failed: {e}")
-        finally:
-            if props_path.exists():
-                props_path.unlink()
+     
 
         if not output_path.exists():
             return ToolResult(
