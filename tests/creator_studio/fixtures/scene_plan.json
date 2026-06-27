@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "style_playbook": "flat-motion-graphics",
+  "scenes": [
+    {
+      "id": "scene_01",
+      "type": "text_card",
+      "description": "Opening title card: 'Why Vector Databases Are Changing AI'",
+      "start_seconds": 0,
+      "end_seconds": 4,
+      "script_section_id": "intro",
+      "framing": "center",
+      "shot_intent": "Establish the topic and draw the viewer in immediately",
+      "narrative_role": "establish_context",
+      "information_role": "Viewer learns what the video is about",
+      "required_assets": [
+        {
+          "type": "text_overlay",
+          "description": "Title text with animated reveal",
+          "source": "generate"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "type": "animation",
+      "description": "Abstract visualization of high-dimensional embeddings as floating points converging in space",
+      "start_seconds": 4,
+      "end_seconds": 20,
+      "script_section_id": "core",
+      "shot_intent": "Make the abstract concept of vector embeddings visually intuitive",
+      "narrative_role": "deliver_payload",
+      "information_role": "Viewer understands how vector search differs from keyword search",
+      "hero_moment": true,
+      "required_assets": [
+        {
+          "type": "animation",
+          "description": "3D scatter plot of embedding vectors with semantic clustering",
+          "source": "generate"
+        }
+      ]
+    },
+    {
+      "id": "scene_03",
+      "type": "text_card",
+      "description": "Closing CTA: 'Start building today'",
+      "start_seconds": 50,
+      "end_seconds": 60,
+      "script_section_id": "outro",
+      "shot_intent": "Drive the viewer to take action",
+      "narrative_role": "call_to_action",
+      "information_role": "Viewer knows the next step"
+    }
+  ],
+  "metadata": {
+    "topic": "vector_databases",
+    "platform": "instagram",
+    "total_scenes": 3
+  }
+}

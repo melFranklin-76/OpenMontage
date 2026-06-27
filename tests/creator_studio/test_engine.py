@@ -92,6 +92,19 @@ def _proposal_complete_project(tmp_path: Path) -> Path:
     return project_dir
 
 
+def _script_complete_project(tmp_path: Path) -> Path:
+    """Return a project dir where research, proposal, AND script stages are all completed."""
+
+    project_dir = _proposal_complete_project(tmp_path)
+    script = json.loads((FIXTURES / "script.json").read_text(encoding="utf-8"))
+    (project_dir / "script").mkdir(parents=True)
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps(script), encoding="utf-8"
+    )
+    Engine().complete_script(project_dir, pipeline=_explainer_pipeline())
+    return project_dir
+
+
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
@@ -902,3 +915,198 @@ def test_complete_script_rejects_invalid_script(tmp_path: Path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3E: Scene Plan stage
+# ---------------------------------------------------------------------------
+
+def test_run_scene_plan_requires_script_complete(tmp_path: Path) -> None:
+    """Scene Plan handoff must raise when script is not yet complete."""
+
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Script stage must be completed"):
+        engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_scene_plan_prepares_handoff(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    result = engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    scene_plan_dir = project_dir / "scene_plan"
+    request = json.loads((scene_plan_dir / "stage_request.json").read_text(encoding="utf-8"))
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_scene_plan.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "scene_plan_pending"
+    assert scene_plan_dir.is_dir()
+    assert request["stage"] == "scene_plan"
+    # Manifest-derived paths — no hardcoded constants.
+    assert request["director_skill_path"] == "skills/pipelines/explainer/scene-director.md"
+    assert request["schema_path"] == "schemas/artifacts/scene_plan.schema.json"
+    assert request["output_path"] == "scene_plan/scene_plan.json"
+    # Manifest-driven approval and checkpoint policy.
+    assert request["requires_approval"] is True
+    assert request["checkpoint_required"] is True
+    assert checkpoint["status"] == "in_progress"
+    assert checkpoint["stage"] == "scene_plan"
+    assert run_manifest["status"] == "scene_plan_in_progress"
+    assert run_manifest["current_stage"] == "scene_plan"
+    assert run_manifest["next_stage"] == "scene_plan"
+
+
+def test_run_scene_plan_result_includes_compat_keys(tmp_path: Path) -> None:
+    """result must contain scene_plan_path so console.print_scene_plan_handoff works."""
+
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    result = engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["scene_plan_path"] == "scene_plan/scene_plan.json"
+    assert result["director_skill_path"] == "skills/pipelines/explainer/scene-director.md"
+    assert result["schema_path"] == "schemas/artifacts/scene_plan.schema.json"
+
+
+def test_run_scene_plan_creates_scene_plan_dir(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    assert (project_dir / "scene_plan").is_dir()
+    assert (project_dir / "scene_plan" / "stage_request.json").exists()
+
+
+def test_run_scene_plan_writes_in_progress_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_scene_plan.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "in_progress"
+    assert checkpoint["stage"] == "scene_plan"
+
+
+def test_run_scene_plan_updates_run_json_to_in_progress(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_manifest["status"] == "scene_plan_in_progress"
+    assert run_manifest["current_stage"] == "scene_plan"
+
+
+def test_complete_scene_plan_validates_and_finalizes(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+    engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    scene_plan = json.loads((FIXTURES / "scene_plan.json").read_text(encoding="utf-8"))
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps(scene_plan), encoding="utf-8"
+    )
+
+    result = engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_scene_plan.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "scene_plan_complete"
+    assert result["next_stage"] == "assets"
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["artifacts"]["scene_plan"]["version"] == "1.0"
+    assert run_manifest["status"] == "scene_plan_complete"
+    assert "scene_plan" in run_manifest["completed_stages"]
+    assert run_manifest["next_stage"] == "assets"
+
+
+def test_complete_scene_plan_completed_stages_includes_all_four(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+    engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    scene_plan = json.loads((FIXTURES / "scene_plan.json").read_text(encoding="utf-8"))
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps(scene_plan), encoding="utf-8"
+    )
+    engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_manifest["completed_stages"] == ["research", "proposal", "script", "scene_plan"]
+
+
+def test_complete_scene_plan_next_stage_is_manifest_driven(tmp_path: Path) -> None:
+    """next_stage must come from the manifest, not a hardcoded string."""
+
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+    engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    scene_plan = json.loads((FIXTURES / "scene_plan.json").read_text(encoding="utf-8"))
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps(scene_plan), encoding="utf-8"
+    )
+    result = engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    # The animated-explainer pipeline places assets after scene_plan.
+    assert result["next_stage"] == "assets"
+
+
+def test_complete_scene_plan_is_idempotent(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    scene_plan = json.loads((FIXTURES / "scene_plan.json").read_text(encoding="utf-8"))
+    (project_dir / "scene_plan").mkdir(parents=True)
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps(scene_plan), encoding="utf-8"
+    )
+    engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "scene_plan_already_complete"
+    assert result["next_stage"] == "assets"
+
+
+def test_run_scene_plan_resume_skips_when_scene_plan_complete(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    scene_plan = json.loads((FIXTURES / "scene_plan.json").read_text(encoding="utf-8"))
+    (project_dir / "scene_plan").mkdir(parents=True)
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps(scene_plan), encoding="utf-8"
+    )
+    engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.run_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "scene_plan_already_complete"
+    assert result["next_stage"] == "assets"
+
+
+def test_complete_scene_plan_rejects_invalid_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+    (project_dir / "scene_plan").mkdir()
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps({"version": "1.0", "incomplete": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())

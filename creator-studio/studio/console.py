@@ -232,3 +232,57 @@ def print_script_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Script by design.")
+
+
+# ---------------------------------------------------------------------------
+# Scene Plan stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_scene_plan_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when scene plan is already done."""
+
+    logger.info("Scene Plan already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_scene_plan_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-scene-plan handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "scene_plan_already_complete":
+        print_scene_plan_already_complete(logger, result)
+        return
+    if status != "scene_plan_pending":
+        logger.info("Scene Plan cannot start: script stage is not complete.")
+        return
+    for line in (
+        "Scene Plan stage prepared.",
+        "",
+        "Workspace:",
+        "  scene_plan/",
+        "",
+        "Stage request:",
+        "  scene_plan/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['scene_plan_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Scene Plan handoff by design.",
+        "Run again with --complete-scene-plan after the scene plan artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_scene_plan_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-scene-plan success block (or resume variant)."""
+
+    if result.get("status") == "scene_plan_already_complete":
+        print_scene_plan_already_complete(logger, result)
+        return
+    logger.info("Scene Plan stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Scene Plan by design.")

@@ -26,6 +26,8 @@ from studio.console import (
     print_research_already_complete,
     print_research_complete,
     print_research_handoff,
+    print_scene_plan_complete,
+    print_scene_plan_handoff,
     print_script_complete,
     print_script_handoff,
     render_execution_plan,
@@ -45,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--complete-proposal", dest="complete_proposal", action="store_true")
     parser.add_argument("--run-script", dest="run_script", action="store_true")
     parser.add_argument("--complete-script", dest="complete_script", action="store_true")
+    parser.add_argument("--run-scene-plan", dest="run_scene_plan", action="store_true")
+    parser.add_argument("--complete-scene-plan", dest="complete_scene_plan", action="store_true")
     return parser.parse_args()
 
 
@@ -102,9 +106,27 @@ def _complete_script() -> int:
     return 0
 
 
+def _run_scene_plan() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().run_scene_plan(project_dir, pipeline=pipeline)
+    print_scene_plan_handoff(logger, result)
+    return 0
+
+
+def _complete_scene_plan() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().complete_scene_plan(project_dir, pipeline=pipeline)
+    print_scene_plan_complete(logger, result)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
+    if args.complete_scene_plan:
+        return _complete_scene_plan()
+    if args.run_scene_plan:
+        return _run_scene_plan()
     if args.complete_script:
         return _complete_script()
     if args.run_script:

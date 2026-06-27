@@ -302,6 +302,50 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="script", pipeline=pipeline)
 
+    def run_scene_plan(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Coordinate the Scene Plan stage as an agent handoff (Script complete -> Scene Plan -> STOP).
+
+        Thin wrapper around _prepare_stage for the "scene_plan" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Script must be complete before handoff.
+        """
+
+        if not self._stage_completed(project_dir, "script"):
+            raise RuntimeError(
+                "Script stage must be completed before starting Scene Plan. "
+                "Run --complete-script first."
+            )
+        result = self._prepare_stage(
+            None, project_dir, stage_name="scene_plan", pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
+        # Backward-compat alias expected by console.print_scene_plan_handoff.
+        if result.get("status") == "scene_plan_pending":
+            result["scene_plan_path"] = result["output_path"]
+        return result
+
+    def complete_scene_plan(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced scene plan and finalize the stage.
+
+        Thin wrapper around _complete_stage for the "scene_plan" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        """
+
+        return self._complete_stage(project_dir, stage_name="scene_plan", pipeline=pipeline)
+
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
     # ------------------------------------------------------------------

@@ -540,3 +540,156 @@ def test_complete_script_routing_takes_priority_over_run_script(
     assert exit_code == 0
     assert "Script stage complete." in output
 
+
+# ---------------------------------------------------------------------------
+# Scene Plan CLI tests
+# ---------------------------------------------------------------------------
+
+def _fake_engine_with_scene_plan(
+    run_scene_plan_result: dict | None = None,
+    complete_scene_plan_result: dict | None = None,
+):
+    return lambda: type(
+        "FakeEngine",
+        (),
+        {
+            "preflight": lambda self, **kwargs: FakePlan(
+                status="passed",
+                project_id="demo-project",
+                required_tools=(),
+                available_tools=(),
+                optional_warnings=(),
+                render_engines=("Remotion",),
+                recommendation="Remotion",
+                estimated_stages=4,
+                ready_to_execute=True,
+                capability_summary=(),
+                execution_plan=("Research", "Proposal", "Script", "Scene Plan"),
+                missing_tools=(),
+                fallback_tools={},
+                warnings=(),
+                composition_runtimes={"remotion": True},
+                next_stage="research",
+            ),
+            "run": lambda self, **kwargs: {},
+            "complete_research": lambda self, *args, **kwargs: {},
+            "run_proposal": lambda self, *args, **kwargs: {},
+            "complete_proposal": lambda self, *args, **kwargs: {},
+            "run_script": lambda self, *args, **kwargs: {},
+            "complete_script": lambda self, *args, **kwargs: {},
+            "run_scene_plan": lambda self, *args, **kwargs: run_scene_plan_result or {},
+            "complete_scene_plan": lambda self, *args, **kwargs: complete_scene_plan_result or {},
+        },
+    )()
+
+
+def test_main_run_scene_plan_prints_handoff(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    handoff = {
+        "status": "scene_plan_pending",
+        "director_skill_path": "skills/pipelines/explainer/scene-director.md",
+        "schema_path": "schemas/artifacts/scene_plan.schema.json",
+        "scene_plan_path": "scene_plan/scene_plan.json",
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_scene_plan(run_scene_plan_result=handoff)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-scene-plan"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Scene Plan stage prepared." in output
+    assert "scene_plan/stage_request.json" in output
+    assert "Read skills/pipelines/explainer/scene-director.md" in output
+    assert "Produce scene_plan/scene_plan.json" in output
+    assert "Validate against schemas/artifacts/scene_plan.schema.json" in output
+    assert "Stopping after Scene Plan handoff by design." in output
+
+
+def test_main_complete_scene_plan_prints_success(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "scene_plan_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_scene_plan.json"),
+        "next_stage": "assets",
+        "elapsed_seconds": 0.04,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_scene_plan(complete_scene_plan_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-scene-plan"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Scene Plan stage complete." in output
+    assert "Next stage: Assets" in output
+    assert "Stopping after Scene Plan by design." in output
+
+
+def test_main_complete_scene_plan_resume(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    resume = {"status": "scene_plan_already_complete", "next_stage": "assets"}
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_scene_plan(complete_scene_plan_result=resume)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-scene-plan"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Scene Plan already completed." in output
+    assert "Next stage: Assets" in output
+
+
+def test_complete_scene_plan_routing_takes_priority_over_run_scene_plan(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """--complete-scene-plan must be dispatched even when --run-scene-plan is also present."""
+
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "scene_plan_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_scene_plan.json"),
+        "next_stage": "assets",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_scene_plan(complete_scene_plan_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-scene-plan", "--complete-scene-plan"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Scene Plan stage complete." in output
+
