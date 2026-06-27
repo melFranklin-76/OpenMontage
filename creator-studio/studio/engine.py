@@ -434,6 +434,50 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="edit", pipeline=pipeline)
 
+    def run_compose(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Coordinate the Compose stage as an agent handoff (Edit complete -> Compose -> STOP).
+
+        Thin wrapper around _prepare_stage for the "compose" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Edit must be complete before handoff.
+        """
+
+        if not self._stage_completed(project_dir, "edit"):
+            raise RuntimeError(
+                "Edit stage must be completed before starting Compose. "
+                "Run --complete-edit first."
+            )
+        result = self._prepare_stage(
+            None, project_dir, stage_name="compose", pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
+        # Backward-compat alias expected by console.print_compose_handoff.
+        if result.get("status") == "compose_pending":
+            result["render_report_path"] = result["output_path"]
+        return result
+
+    def complete_compose(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced render report and finalize the stage.
+
+        Thin wrapper around _complete_stage for the "compose" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        """
+
+        return self._complete_stage(project_dir, stage_name="compose", pipeline=pipeline)
+
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
     # ------------------------------------------------------------------

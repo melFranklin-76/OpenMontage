@@ -955,3 +955,134 @@ def test_complete_edit_routing_takes_priority_over_run_edit(
     assert exit_code == 0
     assert "Edit stage complete." in output
 
+
+# ---------------------------------------------------------------------------
+# Compose CLI tests
+# ---------------------------------------------------------------------------
+
+def _fake_engine_with_compose(
+    *,
+    run_compose_result: dict | None = None,
+    complete_compose_result: dict | None = None,
+):
+    """Return a fake Engine class with run_compose / complete_compose stubbed."""
+
+    class FakeEngine:
+        def run_compose(self, project_dir, *, pipeline, **kwargs):
+            return run_compose_result or {}
+
+        def complete_compose(self, project_dir, *, pipeline):
+            return complete_compose_result or {}
+
+    return FakeEngine
+
+
+def test_run_compose_cli_prints_handoff(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    handoff = {
+        "status": "compose_pending",
+        "director_skill_path": "skills/pipelines/explainer/compose-director.md",
+        "render_report_path": str(project_dir / "compose" / "render_report.json"),
+        "schema_path": "schemas/artifacts/render_report.schema.json",
+        "output_path": str(project_dir / "compose" / "render_report.json"),
+        "workspace": str(project_dir / "compose"),
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_compose(run_compose_result=handoff)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-compose"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Compose stage prepared." in output
+    assert "compose-director.md" in output
+
+
+def test_complete_compose_cli_prints_complete(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "compose_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_compose.json"),
+        "next_stage": "publish",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_compose(complete_compose_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-compose"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Compose stage complete." in output
+    assert "Next stage: Publish" in output
+
+
+def test_run_compose_cli_prints_resume(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    already = {
+        "status": "compose_already_complete",
+        "next_stage": "publish",
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_compose(run_compose_result=already)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-compose"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Compose already completed." in output
+
+
+def test_complete_compose_routing_takes_priority_over_run_compose(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """--complete-compose must be dispatched even when --run-compose is also present."""
+
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "compose_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_compose.json"),
+        "next_stage": "publish",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_compose(complete_compose_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-compose", "--complete-compose"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Compose stage complete." in output
+
