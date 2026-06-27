@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Creator Studio entry point - Milestone 3B (Research stage integration)."""
+"""Creator Studio entry point - Milestone 3C (Proposal stage integration)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from studio import (
     select_pipeline,
 )
 from studio.console import (
+    print_proposal_complete,
+    print_proposal_handoff,
     print_research_already_complete,
     print_research_complete,
     print_research_handoff,
@@ -37,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--topic")
     parser.add_argument("--approve", action="store_true")
     parser.add_argument("--complete-research", dest="complete_research", action="store_true")
+    parser.add_argument("--run-proposal", dest="run_proposal", action="store_true")
+    parser.add_argument("--complete-proposal", dest="complete_proposal", action="store_true")
     return parser.parse_args()
 
 
@@ -49,18 +53,44 @@ def _latest_project() -> Path:
     return max(projects, key=lambda p: p.stat().st_mtime)
 
 
-def _complete_research() -> int:
+def _resolve():
+    """Load project dir, pipeline, and logger for stage completion commands."""
+
     project_dir = _latest_project()
     manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
     pipeline = load_manifest(manifest["pipeline"])
     logger = get_logger(project_id=project_dir.name, logs_dir=LOGS_DIR)
+    return project_dir, pipeline, logger
+
+
+def _complete_research() -> int:
+    project_dir, pipeline, logger = _resolve()
     result = Engine().complete_research(project_dir, pipeline=pipeline)
     print_research_complete(logger, result)
     return 0
 
 
+def _run_proposal() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().run_proposal(project_dir, pipeline=pipeline)
+    print_proposal_handoff(logger, result)
+    return 0
+
+
+def _complete_proposal() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().complete_proposal(project_dir, pipeline=pipeline)
+    print_proposal_complete(logger, result)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+
+    if args.complete_proposal:
+        return _complete_proposal()
+    if args.run_proposal:
+        return _run_proposal()
     if args.complete_research:
         return _complete_research()
 
@@ -90,7 +120,10 @@ def main() -> int:
             persona=persona["name"],
             platform=platform,
         )
-        print_research_handoff(logger, result)
+        if result.get("status") == "research_already_complete":
+            print_research_already_complete(logger, result)
+        else:
+            print_research_handoff(logger, result)
     else:
         logger.info("Waiting for approval...")
     return 0

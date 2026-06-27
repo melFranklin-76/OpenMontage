@@ -187,9 +187,9 @@ class Engine:
     ) -> dict[str, Any]:
         """Coordinate the Research stage as an agent handoff (Planning -> Research -> STOP).
 
-        Delegates to _prepare_stage so the same logic can later drive Proposal,
-        Script, and every subsequent stage without duplication. The
-        ``research_brief_path`` key is added here for backward compatibility.
+        Delegates to _prepare_stage so the same logic drives every subsequent
+        stage without duplication. The ``research_brief_path`` key is added here
+        for backward compatibility.
         """
 
         result = self._prepare_stage(
@@ -214,11 +214,45 @@ class Engine:
     ) -> dict[str, Any]:
         """Validate the agent-produced research brief and finalize the stage.
 
-        Delegates to _complete_stage. The public signature is preserved so that
+        Delegates to _complete_stage. Public signature is preserved so that
         run.py, tests, and any external callers remain unchanged.
         """
 
         return self._complete_stage(project_dir, stage_name="research", pipeline=pipeline)
+
+    def run_proposal(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Coordinate the Proposal stage as an agent handoff (Research complete -> Proposal -> STOP).
+
+        Thin wrapper around _prepare_stage for the "proposal" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Research must be complete before handoff.
+        """
+
+        if not self._stage_completed(project_dir, "research"):
+            raise RuntimeError(
+                "Research stage must be completed before starting Proposal. "
+                "Run --complete-research first."
+            )
+        return self._prepare_stage(None, project_dir, stage_name="proposal", pipeline=pipeline)
+
+    def complete_proposal(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced proposal packet and finalize the stage.
+
+        Thin wrapper around _complete_stage for the "proposal" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        """
+
+        return self._complete_stage(project_dir, stage_name="proposal", pipeline=pipeline)
 
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
@@ -226,21 +260,21 @@ class Engine:
 
     def _prepare_stage(
         self,
-        plan: PreflightResult,
+        plan: PreflightResult | None,
         project_dir: Path,
         *,
         stage_name: str,
-        topic: str,
         pipeline: PipelineDefinition,
-        persona: str,
-        platform: str,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
     ) -> dict[str, Any]:
         """Generic stage-handoff preparation driven entirely by the pipeline manifest.
 
         Reads stage metadata (skill path, canonical artifact, approval policy)
-        from the manifest rather than hardcoded constants. Handles the resume
-        guard and blocked-preflight guard identically to the original Research
-        implementation.
+        from the manifest. When ``plan`` is provided the blocked-preflight guard
+        is enforced; passing ``None`` skips it for stages that run after the
+        initial approval step (e.g. Proposal, Script).
         """
 
         pipeline_dir = project_dir.parent
@@ -255,8 +289,8 @@ class Engine:
                 "next_stage": get_next_stage(pipeline_dir, project_id, pipeline.name),
             }
 
-        # Blocked guard: preserve preflight gate; never create artifacts.
-        if not plan.ready_to_execute:
+        # Blocked guard: only applies for stages driven directly by preflight approval.
+        if plan is not None and not plan.ready_to_execute:
             update_run_manifest(project_dir, approved=False, status="blocked")
             return {
                 "status": "blocked",

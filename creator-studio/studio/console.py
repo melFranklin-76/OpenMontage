@@ -69,6 +69,10 @@ def render_execution_plan(
         logger.info(f"Warning: {warning}")
 
 
+# ---------------------------------------------------------------------------
+# Research stage console helpers
+# ---------------------------------------------------------------------------
+
 def print_research_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
     """Print the resume block when research is already done (shared by both commands)."""
 
@@ -120,3 +124,57 @@ def print_research_complete(logger: StudioLogger, result: dict[str, Any]) -> Non
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Research by design.")
+
+
+# ---------------------------------------------------------------------------
+# Proposal stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_proposal_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when proposal is already done."""
+
+    logger.info("Proposal already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_proposal_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-proposal handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "proposal_already_complete":
+        print_proposal_already_complete(logger, result)
+        return
+    if status != "proposal_pending":
+        logger.info("Proposal cannot start: research stage is not complete.")
+        return
+    for line in (
+        "Proposal stage prepared.",
+        "",
+        "Workspace:",
+        "  proposal/",
+        "",
+        "Stage request:",
+        "  proposal/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['proposal_packet_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Proposal handoff by design.",
+        "Run again with --complete-proposal after the proposal packet exists.",
+    ):
+        logger.info(line)
+
+
+def print_proposal_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-proposal success block (or resume variant)."""
+
+    if result.get("status") == "proposal_already_complete":
+        print_proposal_already_complete(logger, result)
+        return
+    logger.info("Proposal stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Proposal by design.")

@@ -66,6 +66,23 @@ def _make_project(tmp_path: Path) -> Path:
     return project_dir
 
 
+def _research_complete_project(tmp_path: Path) -> Path:
+    """Return a project dir where the research stage is already completed."""
+
+    project_dir = _make_project(tmp_path)
+    brief = json.loads((FIXTURES / "research_brief.json").read_text(encoding="utf-8"))
+    (project_dir / "research").mkdir()
+    (project_dir / "research" / "research_brief.json").write_text(
+        json.dumps(brief), encoding="utf-8"
+    )
+    Engine().complete_research(project_dir, pipeline=_explainer_pipeline())
+    return project_dir
+
+
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
 def test_preflight_returns_passed_result_when_required_tools_exist(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -185,6 +202,10 @@ def test_preflight_returns_blocked_when_required_tool_has_no_fallback(
     assert result.missing_tools == ("transcriber",)
     assert result.fallback_tools == {}
 
+
+# ---------------------------------------------------------------------------
+# Research stage
+# ---------------------------------------------------------------------------
 
 def test_run_blocked_plan_preserves_milestone_3a_behavior(tmp_path: Path) -> None:
     engine = Engine()
@@ -474,3 +495,188 @@ def test_research_brief_projector_skips_optional_sections_when_absent(tmp_path: 
     assert "research/trend_notes.md" not in written
     assert "research/visual_references.json" not in written
 
+
+# ---------------------------------------------------------------------------
+# Milestone 3C: Proposal stage
+# ---------------------------------------------------------------------------
+
+def test_run_proposal_requires_research_complete(tmp_path: Path) -> None:
+    """Proposal handoff must raise when research is not yet complete."""
+
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Research stage must be completed"):
+        engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_proposal_prepares_handoff(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    result = engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    proposal_dir = project_dir / "proposal"
+    request = json.loads((proposal_dir / "stage_request.json").read_text(encoding="utf-8"))
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_proposal.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "proposal_pending"
+    assert proposal_dir.is_dir()
+    assert request["stage"] == "proposal"
+    # Manifest-derived paths — no hardcoded constants.
+    assert request["director_skill_path"] == "skills/pipelines/explainer/proposal-director.md"
+    assert request["schema_path"] == "schemas/artifacts/proposal_packet.schema.json"
+    assert request["output_path"] == "proposal/proposal_packet.json"
+    # Manifest-driven approval and checkpoint policy.
+    assert request["requires_approval"] is True    # proposal: human_approval_default=True
+    assert request["checkpoint_required"] is True  # proposal: checkpoint_required=True
+    assert checkpoint["status"] == "in_progress"
+    assert checkpoint["stage"] == "proposal"
+    assert run_manifest["status"] == "proposal_in_progress"
+    assert run_manifest["current_stage"] == "proposal"
+    assert run_manifest["next_stage"] == "proposal"
+
+
+def test_run_proposal_creates_proposal_dir(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    assert (project_dir / "proposal").is_dir()
+    assert (project_dir / "proposal" / "stage_request.json").exists()
+
+
+def test_run_proposal_writes_in_progress_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_proposal.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "in_progress"
+    assert checkpoint["stage"] == "proposal"
+
+
+def test_run_proposal_updates_run_json_to_in_progress(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_manifest["status"] == "proposal_in_progress"
+    assert run_manifest["current_stage"] == "proposal"
+
+
+def test_complete_proposal_validates_and_finalizes(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+    engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    packet = json.loads((FIXTURES / "proposal_packet.json").read_text(encoding="utf-8"))
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps(packet), encoding="utf-8"
+    )
+
+    result = engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_proposal.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "proposal_complete"
+    assert result["next_stage"] == "script"
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["artifacts"]["proposal_packet"]["version"] == "1.0"
+    assert run_manifest["status"] == "proposal_complete"
+    assert "proposal" in run_manifest["completed_stages"]
+    assert run_manifest["next_stage"] == "script"
+
+
+def test_complete_proposal_next_stage_is_manifest_driven(tmp_path: Path) -> None:
+    """next_stage must come from the manifest, not a hardcoded string."""
+
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+    engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    packet = json.loads((FIXTURES / "proposal_packet.json").read_text(encoding="utf-8"))
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps(packet), encoding="utf-8"
+    )
+
+    result = engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    # The animated-explainer pipeline places script after proposal.
+    assert result["next_stage"] == "script"
+
+
+def test_complete_proposal_is_idempotent(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    packet = json.loads((FIXTURES / "proposal_packet.json").read_text(encoding="utf-8"))
+    (project_dir / "proposal").mkdir(parents=True)
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps(packet), encoding="utf-8"
+    )
+    engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    # Second call must return already_complete without rewriting.
+    result = engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "proposal_already_complete"
+    assert result["next_stage"] == "script"
+
+
+def test_run_proposal_resume_skips_when_proposal_complete(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    packet = json.loads((FIXTURES / "proposal_packet.json").read_text(encoding="utf-8"))
+    (project_dir / "proposal").mkdir(parents=True)
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps(packet), encoding="utf-8"
+    )
+    engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "proposal_already_complete"
+    assert result["next_stage"] == "script"
+
+
+def test_complete_proposal_rejects_invalid_packet(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+    (project_dir / "proposal").mkdir()
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps({"version": "1.0", "incomplete": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_complete_proposal_updates_run_json_completed_stages(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    packet = json.loads((FIXTURES / "proposal_packet.json").read_text(encoding="utf-8"))
+    (project_dir / "proposal").mkdir(parents=True)
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps(packet), encoding="utf-8"
+    )
+
+    engine.complete_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_manifest["completed_stages"] == ["research", "proposal"]
+    assert run_manifest["current_stage"] == "proposal"

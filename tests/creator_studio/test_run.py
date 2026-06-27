@@ -270,3 +270,122 @@ def test_main_complete_research_resume(tmp_path: Path, monkeypatch, capsys) -> N
     assert "Research already completed." in output
     assert "Next stage: Proposal" in output
 
+
+# ---------------------------------------------------------------------------
+# Proposal CLI tests
+# ---------------------------------------------------------------------------
+
+def _fake_engine_with_proposal(
+    run_result: dict | None = None,
+    complete_research_result: dict | None = None,
+    run_proposal_result: dict | None = None,
+    complete_proposal_result: dict | None = None,
+):
+    return lambda: type(
+        "FakeEngine",
+        (),
+        {
+            "preflight": lambda self, **kwargs: FakePlan(
+                status="passed",
+                project_id="demo-project",
+                required_tools=(),
+                available_tools=(),
+                optional_warnings=(),
+                render_engines=("Remotion",),
+                recommendation="Remotion",
+                estimated_stages=2,
+                ready_to_execute=True,
+                capability_summary=(),
+                execution_plan=("Research", "Proposal"),
+                missing_tools=(),
+                fallback_tools={},
+                warnings=(),
+                composition_runtimes={"remotion": True},
+                next_stage="research",
+            ),
+            "run": lambda self, **kwargs: run_result or {},
+            "complete_research": lambda self, *args, **kwargs: complete_research_result or {},
+            "run_proposal": lambda self, *args, **kwargs: run_proposal_result or {},
+            "complete_proposal": lambda self, *args, **kwargs: complete_proposal_result or {},
+        },
+    )()
+
+
+def test_main_run_proposal_prints_handoff(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    handoff = {
+        "status": "proposal_pending",
+        "director_skill_path": "skills/pipelines/explainer/proposal-director.md",
+        "schema_path": "schemas/artifacts/proposal_packet.schema.json",
+        "proposal_packet_path": "proposal/proposal_packet.json",
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_proposal(run_proposal_result=handoff)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-proposal"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Proposal stage prepared." in output
+    assert "proposal/stage_request.json" in output
+    assert "Read skills/pipelines/explainer/proposal-director.md" in output
+    assert "Stopping after Proposal handoff by design." in output
+
+
+def test_main_complete_proposal_prints_success(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "proposal_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_proposal.json"),
+        "next_stage": "script",
+        "elapsed_seconds": 0.02,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_proposal(complete_proposal_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-proposal"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Proposal stage complete." in output
+    assert "Next stage: Script" in output
+    assert "Stopping after Proposal by design." in output
+
+
+def test_main_complete_proposal_resume(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    resume = {"status": "proposal_already_complete", "next_stage": "script"}
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_proposal(complete_proposal_result=resume)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-proposal"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Proposal already completed." in output
+    assert "Next stage: Script" in output
+
