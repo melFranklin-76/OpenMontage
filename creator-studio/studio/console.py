@@ -448,3 +448,57 @@ def print_compose_complete(logger: StudioLogger, result: dict[str, Any]) -> None
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Compose by design.")
+
+
+# ---------------------------------------------------------------------------
+# Publish stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_publish_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when publish is already done."""
+
+    logger.info("Publish already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_publish_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-publish handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "publish_already_complete":
+        print_publish_already_complete(logger, result)
+        return
+    if status != "publish_pending":
+        logger.info("Publish cannot start: compose stage is not complete.")
+        return
+    for line in (
+        "Publish stage prepared.",
+        "",
+        "Workspace:",
+        "  publish/",
+        "",
+        "Stage request:",
+        "  publish/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['publish_log_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Publish handoff by design.",
+        "Run again with --complete-publish after the publish artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_publish_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-publish success block (or resume variant)."""
+
+    if result.get("status") == "publish_already_complete":
+        print_publish_already_complete(logger, result)
+        return
+    logger.info("Publish stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Publish by design.")

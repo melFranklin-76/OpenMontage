@@ -478,6 +478,52 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="compose", pipeline=pipeline)
 
+    def run_publish(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Coordinate the Publish stage as an agent handoff (Compose complete -> Publish -> STOP).
+
+        Thin wrapper around _prepare_stage for the "publish" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Compose must be complete before handoff.
+        Publish is the final stage; next_stage will be None after completion.
+        """
+
+        if not self._stage_completed(project_dir, "compose"):
+            raise RuntimeError(
+                "Compose stage must be completed before starting Publish. "
+                "Run --complete-compose first."
+            )
+        result = self._prepare_stage(
+            None, project_dir, stage_name="publish", pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
+        # Backward-compat alias expected by console.print_publish_handoff.
+        if result.get("status") == "publish_pending":
+            result["publish_log_path"] = result["output_path"]
+        return result
+
+    def complete_publish(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced publish log and finalize the pipeline.
+
+        Thin wrapper around _complete_stage for the "publish" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        Publish is the final stage; next_stage in the result will be None.
+        """
+
+        return self._complete_stage(project_dir, stage_name="publish", pipeline=pipeline)
+
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
     # ------------------------------------------------------------------

@@ -1086,3 +1086,135 @@ def test_complete_compose_routing_takes_priority_over_run_compose(
     assert exit_code == 0
     assert "Compose stage complete." in output
 
+
+# ---------------------------------------------------------------------------
+# Publish CLI tests
+# ---------------------------------------------------------------------------
+
+def _fake_engine_with_publish(
+    *,
+    run_publish_result: dict | None = None,
+    complete_publish_result: dict | None = None,
+):
+    """Return a fake Engine class with run_publish / complete_publish stubbed."""
+
+    class FakeEngine:
+        def run_publish(self, project_dir, *, pipeline, **kwargs):
+            return run_publish_result or {}
+
+        def complete_publish(self, project_dir, *, pipeline):
+            return complete_publish_result or {}
+
+    return FakeEngine
+
+
+def test_run_publish_cli_prints_handoff(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    handoff = {
+        "status": "publish_pending",
+        "director_skill_path": "skills/pipelines/explainer/publish-director.md",
+        "publish_log_path": str(project_dir / "publish" / "publish_log.json"),
+        "schema_path": "schemas/artifacts/publish_log.schema.json",
+        "output_path": str(project_dir / "publish" / "publish_log.json"),
+        "workspace": str(project_dir / "publish"),
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_publish(run_publish_result=handoff)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-publish"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Publish stage prepared." in output
+    assert "publish-director.md" in output
+
+
+def test_complete_publish_cli_prints_complete(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "publish_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_publish.json"),
+        "next_stage": None,
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_publish(complete_publish_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-publish"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Publish stage complete." in output
+    assert "Next stage: Done" in output
+
+
+def test_run_publish_cli_prints_resume(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    already = {
+        "status": "publish_already_complete",
+        "next_stage": None,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_publish(run_publish_result=already)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-publish"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Publish already completed." in output
+    assert "Next stage: Done" in output
+
+
+def test_complete_publish_routing_takes_priority_over_run_publish(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """--complete-publish must be dispatched even when --run-publish is also present."""
+
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "publish_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_publish.json"),
+        "next_stage": None,
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_publish(complete_publish_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-publish", "--complete-publish"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Publish stage complete." in output
+

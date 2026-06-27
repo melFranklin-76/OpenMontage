@@ -144,6 +144,19 @@ def _edit_complete_project(tmp_path: Path) -> Path:
     return project_dir
 
 
+def _compose_complete_project(tmp_path: Path) -> Path:
+    """Return a project dir where research..edit AND compose are all completed."""
+
+    project_dir = _edit_complete_project(tmp_path)
+    render_report = json.loads((FIXTURES / "render_report.json").read_text(encoding="utf-8"))
+    (project_dir / "compose").mkdir(parents=True)
+    (project_dir / "compose" / "render_report.json").write_text(
+        json.dumps(render_report), encoding="utf-8"
+    )
+    Engine().complete_compose(project_dir, pipeline=_explainer_pipeline())
+    return project_dir
+
+
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
@@ -1611,3 +1624,159 @@ def test_complete_compose_rejects_invalid_artifact(tmp_path: Path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         engine.complete_compose(project_dir, pipeline=_explainer_pipeline())
+
+
+# ---------------------------------------------------------------------------
+# Publish stage tests
+# ---------------------------------------------------------------------------
+
+def test_run_publish_requires_compose_complete(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _edit_complete_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Compose stage must be completed"):
+        engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_publish_creates_workspace(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+    assert (project_dir / "publish").is_dir()
+
+
+def test_run_publish_writes_stage_request(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+    sr = json.loads((project_dir / "publish" / "stage_request.json").read_text())
+    assert sr["stage"] == "publish"
+    assert "director_skill_path" in sr
+
+
+def test_run_publish_writes_in_progress_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+    ckpt = json.loads((project_dir / "checkpoint_publish.json").read_text())
+    assert ckpt["status"] == "in_progress"
+
+
+def test_run_publish_sets_run_json_in_progress(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+    run = json.loads((project_dir / "run.json").read_text())
+    assert run["status"] == "publish_in_progress"
+
+
+def test_run_publish_result_includes_compat_keys(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+
+    result = engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "publish_pending"
+    assert "publish_log_path" in result
+    assert "director_skill_path" in result
+    assert "schema_path" in result
+
+
+def test_complete_publish_validates_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+    publish_log = json.loads((FIXTURES / "publish_log.json").read_text(encoding="utf-8"))
+    (project_dir / "publish" / "publish_log.json").write_text(
+        json.dumps(publish_log), encoding="utf-8"
+    )
+
+    result = engine.complete_publish(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "publish_complete"
+
+
+def test_complete_publish_writes_completed_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+    publish_log = json.loads((FIXTURES / "publish_log.json").read_text(encoding="utf-8"))
+    (project_dir / "publish" / "publish_log.json").write_text(
+        json.dumps(publish_log), encoding="utf-8"
+    )
+
+    engine.complete_publish(project_dir, pipeline=_explainer_pipeline())
+
+    ckpt = json.loads((project_dir / "checkpoint_publish.json").read_text())
+    assert ckpt["status"] == "completed"
+
+
+def test_complete_publish_advances_run_json(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+    publish_log = json.loads((FIXTURES / "publish_log.json").read_text(encoding="utf-8"))
+    (project_dir / "publish" / "publish_log.json").write_text(
+        json.dumps(publish_log), encoding="utf-8"
+    )
+
+    engine.complete_publish(project_dir, pipeline=_explainer_pipeline())
+
+    run = json.loads((project_dir / "run.json").read_text())
+    assert run["status"] == "publish_complete"
+    assert run["current_stage"] == "publish"
+    assert run["completed_stages"] == [
+        "research", "proposal", "script", "scene_plan", "assets", "edit", "compose", "publish"
+    ]
+
+
+def test_complete_publish_next_stage_is_none_final_stage(tmp_path: Path) -> None:
+    """Publish is the final pipeline stage; next_stage must be None."""
+
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+    publish_log = json.loads((FIXTURES / "publish_log.json").read_text(encoding="utf-8"))
+    (project_dir / "publish" / "publish_log.json").write_text(
+        json.dumps(publish_log), encoding="utf-8"
+    )
+
+    result = engine.complete_publish(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["next_stage"] is None
+
+
+def test_run_publish_resume_guard(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+    publish_log = json.loads((FIXTURES / "publish_log.json").read_text(encoding="utf-8"))
+    (project_dir / "publish" / "publish_log.json").write_text(
+        json.dumps(publish_log), encoding="utf-8"
+    )
+    engine.complete_publish(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "publish_already_complete"
+    assert result["next_stage"] is None
+
+
+def test_complete_publish_rejects_invalid_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _compose_complete_project(tmp_path)
+    engine.run_publish(project_dir, pipeline=_explainer_pipeline())
+    (project_dir / "publish" / "publish_log.json").write_text(
+        json.dumps({"version": "1.0", "not_entries": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        engine.complete_publish(project_dir, pipeline=_explainer_pipeline())

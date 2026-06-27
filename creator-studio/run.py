@@ -29,6 +29,8 @@ from studio.console import (
     print_edit_handoff,
     print_proposal_complete,
     print_proposal_handoff,
+    print_publish_complete,
+    print_publish_handoff,
     print_research_already_complete,
     print_research_complete,
     print_research_handoff,
@@ -61,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--complete-edit", dest="complete_edit", action="store_true")
     parser.add_argument("--run-compose", dest="run_compose", action="store_true")
     parser.add_argument("--complete-compose", dest="complete_compose", action="store_true")
+    parser.add_argument("--run-publish", dest="run_publish", action="store_true")
+    parser.add_argument("--complete-publish", dest="complete_publish", action="store_true")
     return parser.parse_args()
 
 
@@ -174,9 +178,27 @@ def _complete_compose() -> int:
     return 0
 
 
+def _run_publish() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().run_publish(project_dir, pipeline=pipeline)
+    print_publish_handoff(logger, result)
+    return 0
+
+
+def _complete_publish() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().complete_publish(project_dir, pipeline=pipeline)
+    print_publish_complete(logger, result)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
+    if args.complete_publish:
+        return _complete_publish()
+    if args.run_publish:
+        return _run_publish()
     if args.complete_compose:
         return _complete_compose()
     if args.run_compose:

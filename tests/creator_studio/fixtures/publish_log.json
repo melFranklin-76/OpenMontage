@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "entries": [
+    {
+      "platform": "instagram",
+      "status": "exported",
+      "export_path": "compose/output/vector_databases_instagram.mp4",
+      "timestamp": "2026-06-27T10:00:00Z",
+      "metadata_used": {
+        "title": "Why Vector Databases Are Changing AI",
+        "description": "Semantic search explained in 60 seconds. Like and follow for more AI explainers.",
+        "hashtags": ["#AI", "#VectorDB", "#MachineLearning", "#TechTips"]
+      }
+    },
+    {
+      "platform": "youtube",
+      "status": "exported",
+      "export_path": "compose/output/vector_databases_horizontal.mp4",
+      "timestamp": "2026-06-27T10:01:00Z",
+      "metadata_used": {
+        "title": "Why Vector Databases Are Changing AI",
+        "description": "In this short explainer, we break down how vector databases enable semantic search at scale and why they're becoming the backbone of modern AI applications.",
+        "hashtags": ["#AI", "#VectorDatabase", "#Embeddings", "#MachineLearning"]
+      }
+    }
+  ],
+  "metadata": {
+    "topic": "vector_databases",
+    "total_entries": 2,
+    "exported_at": "2026-06-27T10:01:30Z"
+  }
+}
