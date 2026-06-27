@@ -390,6 +390,50 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="assets", pipeline=pipeline)
 
+    def run_edit(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Coordinate the Edit stage as an agent handoff (Assets complete -> Edit -> STOP).
+
+        Thin wrapper around _prepare_stage for the "edit" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Assets must be complete before handoff.
+        """
+
+        if not self._stage_completed(project_dir, "assets"):
+            raise RuntimeError(
+                "Assets stage must be completed before starting Edit. "
+                "Run --complete-assets first."
+            )
+        result = self._prepare_stage(
+            None, project_dir, stage_name="edit", pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
+        # Backward-compat alias expected by console.print_edit_handoff.
+        if result.get("status") == "edit_pending":
+            result["edit_decisions_path"] = result["output_path"]
+        return result
+
+    def complete_edit(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced edit decisions and finalize the stage.
+
+        Thin wrapper around _complete_stage for the "edit" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        """
+
+        return self._complete_stage(project_dir, stage_name="edit", pipeline=pipeline)
+
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
     # ------------------------------------------------------------------

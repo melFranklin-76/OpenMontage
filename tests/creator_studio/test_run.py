@@ -824,3 +824,134 @@ def test_complete_assets_routing_takes_priority_over_run_assets(
     assert exit_code == 0
     assert "Assets stage complete." in output
 
+
+# ---------------------------------------------------------------------------
+# Edit CLI tests
+# ---------------------------------------------------------------------------
+
+def _fake_engine_with_edit(
+    *,
+    run_edit_result: dict | None = None,
+    complete_edit_result: dict | None = None,
+):
+    """Return a fake Engine class with run_edit / complete_edit stubbed."""
+
+    class FakeEngine:
+        def run_edit(self, project_dir, *, pipeline, **kwargs):
+            return run_edit_result or {}
+
+        def complete_edit(self, project_dir, *, pipeline):
+            return complete_edit_result or {}
+
+    return FakeEngine
+
+
+def test_run_edit_cli_prints_handoff(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    handoff = {
+        "status": "edit_pending",
+        "director_skill_path": "skills/pipelines/explainer/edit-director.md",
+        "edit_decisions_path": str(project_dir / "edit" / "edit_decisions.json"),
+        "schema_path": "schemas/artifacts/edit_decisions.schema.json",
+        "output_path": str(project_dir / "edit" / "edit_decisions.json"),
+        "workspace": str(project_dir / "edit"),
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_edit(run_edit_result=handoff)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-edit"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Edit stage prepared." in output
+    assert "edit-director.md" in output
+
+
+def test_complete_edit_cli_prints_complete(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "edit_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_edit.json"),
+        "next_stage": "compose",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_edit(complete_edit_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-edit"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Edit stage complete." in output
+    assert "Next stage: Compose" in output
+
+
+def test_run_edit_cli_prints_resume(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    already = {
+        "status": "edit_already_complete",
+        "next_stage": "compose",
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_edit(run_edit_result=already)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-edit"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Edit already completed." in output
+
+
+def test_complete_edit_routing_takes_priority_over_run_edit(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """--complete-edit must be dispatched even when --run-edit is also present."""
+
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "edit_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_edit.json"),
+        "next_stage": "compose",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_edit(complete_edit_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-edit", "--complete-edit"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Edit stage complete." in output
+

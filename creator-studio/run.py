@@ -23,6 +23,8 @@ from studio import (
 from studio.console import (
     print_assets_complete,
     print_assets_handoff,
+    print_edit_complete,
+    print_edit_handoff,
     print_proposal_complete,
     print_proposal_handoff,
     print_research_already_complete,
@@ -53,6 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--complete-scene-plan", dest="complete_scene_plan", action="store_true")
     parser.add_argument("--run-assets", dest="run_assets", action="store_true")
     parser.add_argument("--complete-assets", dest="complete_assets", action="store_true")
+    parser.add_argument("--run-edit", dest="run_edit", action="store_true")
+    parser.add_argument("--complete-edit", dest="complete_edit", action="store_true")
     return parser.parse_args()
 
 
@@ -138,9 +142,27 @@ def _complete_assets() -> int:
     return 0
 
 
+def _run_edit() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().run_edit(project_dir, pipeline=pipeline)
+    print_edit_handoff(logger, result)
+    return 0
+
+
+def _complete_edit() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().complete_edit(project_dir, pipeline=pipeline)
+    print_edit_complete(logger, result)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
+    if args.complete_edit:
+        return _complete_edit()
+    if args.run_edit:
+        return _run_edit()
     if args.complete_assets:
         return _complete_assets()
     if args.run_assets:

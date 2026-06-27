@@ -118,6 +118,19 @@ def _scene_plan_complete_project(tmp_path: Path) -> Path:
     return project_dir
 
 
+def _assets_complete_project(tmp_path: Path) -> Path:
+    """Return a project dir where research..scene_plan AND assets are all completed."""
+
+    project_dir = _scene_plan_complete_project(tmp_path)
+    asset_manifest = json.loads((FIXTURES / "asset_manifest.json").read_text(encoding="utf-8"))
+    (project_dir / "assets").mkdir(parents=True)
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps(asset_manifest), encoding="utf-8"
+    )
+    Engine().complete_assets(project_dir, pipeline=_explainer_pipeline())
+    return project_dir
+
+
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
@@ -1277,3 +1290,156 @@ def test_complete_assets_rejects_invalid_artifact(tmp_path: Path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         engine.complete_assets(project_dir, pipeline=_explainer_pipeline())
+
+
+# ---------------------------------------------------------------------------
+# Edit stage tests
+# ---------------------------------------------------------------------------
+
+def test_run_edit_requires_assets_complete(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Assets stage must be completed"):
+        engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_edit_creates_workspace(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+    assert (project_dir / "edit").is_dir()
+
+
+def test_run_edit_writes_stage_request(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+    sr = json.loads((project_dir / "edit" / "stage_request.json").read_text())
+    assert sr["stage"] == "edit"
+    assert "director_skill_path" in sr
+
+
+def test_run_edit_writes_in_progress_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+    ckpt = json.loads((project_dir / "checkpoint_edit.json").read_text())
+    assert ckpt["status"] == "in_progress"
+
+
+def test_run_edit_sets_run_json_in_progress(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+    run = json.loads((project_dir / "run.json").read_text())
+    assert run["status"] == "edit_in_progress"
+
+
+def test_run_edit_result_includes_compat_keys(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+
+    result = engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "edit_pending"
+    assert "edit_decisions_path" in result
+    assert "director_skill_path" in result
+    assert "schema_path" in result
+
+
+def test_complete_edit_validates_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+    edit_decisions = json.loads((FIXTURES / "edit_decisions.json").read_text(encoding="utf-8"))
+    (project_dir / "edit" / "edit_decisions.json").write_text(
+        json.dumps(edit_decisions), encoding="utf-8"
+    )
+
+    result = engine.complete_edit(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "edit_complete"
+
+
+def test_complete_edit_writes_completed_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+    edit_decisions = json.loads((FIXTURES / "edit_decisions.json").read_text(encoding="utf-8"))
+    (project_dir / "edit" / "edit_decisions.json").write_text(
+        json.dumps(edit_decisions), encoding="utf-8"
+    )
+
+    engine.complete_edit(project_dir, pipeline=_explainer_pipeline())
+
+    ckpt = json.loads((project_dir / "checkpoint_edit.json").read_text())
+    assert ckpt["status"] == "completed"
+
+
+def test_complete_edit_advances_run_json(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+    edit_decisions = json.loads((FIXTURES / "edit_decisions.json").read_text(encoding="utf-8"))
+    (project_dir / "edit" / "edit_decisions.json").write_text(
+        json.dumps(edit_decisions), encoding="utf-8"
+    )
+
+    engine.complete_edit(project_dir, pipeline=_explainer_pipeline())
+
+    run = json.loads((project_dir / "run.json").read_text())
+    assert run["status"] == "edit_complete"
+    assert run["current_stage"] == "edit"
+    assert run["completed_stages"] == ["research", "proposal", "script", "scene_plan", "assets", "edit"]
+    assert run["next_stage"] == "compose"
+
+
+def test_complete_edit_next_stage_is_manifest_driven(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+    edit_decisions = json.loads((FIXTURES / "edit_decisions.json").read_text(encoding="utf-8"))
+    (project_dir / "edit" / "edit_decisions.json").write_text(
+        json.dumps(edit_decisions), encoding="utf-8"
+    )
+
+    result = engine.complete_edit(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["next_stage"] == "compose"
+
+
+def test_run_edit_resume_guard(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+    edit_decisions = json.loads((FIXTURES / "edit_decisions.json").read_text(encoding="utf-8"))
+    (project_dir / "edit" / "edit_decisions.json").write_text(
+        json.dumps(edit_decisions), encoding="utf-8"
+    )
+    engine.complete_edit(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "edit_already_complete"
+    assert result["next_stage"] == "compose"
+
+
+def test_complete_edit_rejects_invalid_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _assets_complete_project(tmp_path)
+    engine.run_edit(project_dir, pipeline=_explainer_pipeline())
+    (project_dir / "edit" / "edit_decisions.json").write_text(
+        json.dumps({"version": "1.0", "no_cuts": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        engine.complete_edit(project_dir, pipeline=_explainer_pipeline())

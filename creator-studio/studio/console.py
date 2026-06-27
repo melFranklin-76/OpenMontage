@@ -340,3 +340,57 @@ def print_assets_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Assets by design.")
+
+
+# ---------------------------------------------------------------------------
+# Edit stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_edit_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when edit is already done."""
+
+    logger.info("Edit already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_edit_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-edit handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "edit_already_complete":
+        print_edit_already_complete(logger, result)
+        return
+    if status != "edit_pending":
+        logger.info("Edit cannot start: assets stage is not complete.")
+        return
+    for line in (
+        "Edit stage prepared.",
+        "",
+        "Workspace:",
+        "  edit/",
+        "",
+        "Stage request:",
+        "  edit/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['edit_decisions_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Edit handoff by design.",
+        "Run again with --complete-edit after the edit artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_edit_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-edit success block (or resume variant)."""
+
+    if result.get("status") == "edit_already_complete":
+        print_edit_already_complete(logger, result)
+        return
+    logger.info("Edit stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Edit by design.")
