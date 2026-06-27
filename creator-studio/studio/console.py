@@ -286,3 +286,57 @@ def print_scene_plan_complete(logger: StudioLogger, result: dict[str, Any]) -> N
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Scene Plan by design.")
+
+
+# ---------------------------------------------------------------------------
+# Assets stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_assets_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when assets is already done."""
+
+    logger.info("Assets already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_assets_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-assets handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "assets_already_complete":
+        print_assets_already_complete(logger, result)
+        return
+    if status != "assets_pending":
+        logger.info("Assets cannot start: scene plan stage is not complete.")
+        return
+    for line in (
+        "Assets stage prepared.",
+        "",
+        "Workspace:",
+        "  assets/",
+        "",
+        "Stage request:",
+        "  assets/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['asset_manifest_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Assets handoff by design.",
+        "Run again with --complete-assets after the asset manifest exists.",
+    ):
+        logger.info(line)
+
+
+def print_assets_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-assets success block (or resume variant)."""
+
+    if result.get("status") == "assets_already_complete":
+        print_assets_already_complete(logger, result)
+        return
+    logger.info("Assets stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Assets by design.")

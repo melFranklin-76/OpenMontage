@@ -21,6 +21,8 @@ from studio import (
     select_pipeline,
 )
 from studio.console import (
+    print_assets_complete,
+    print_assets_handoff,
     print_proposal_complete,
     print_proposal_handoff,
     print_research_already_complete,
@@ -49,6 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--complete-script", dest="complete_script", action="store_true")
     parser.add_argument("--run-scene-plan", dest="run_scene_plan", action="store_true")
     parser.add_argument("--complete-scene-plan", dest="complete_scene_plan", action="store_true")
+    parser.add_argument("--run-assets", dest="run_assets", action="store_true")
+    parser.add_argument("--complete-assets", dest="complete_assets", action="store_true")
     return parser.parse_args()
 
 
@@ -120,9 +124,27 @@ def _complete_scene_plan() -> int:
     return 0
 
 
+def _run_assets() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().run_assets(project_dir, pipeline=pipeline)
+    print_assets_handoff(logger, result)
+    return 0
+
+
+def _complete_assets() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().complete_assets(project_dir, pipeline=pipeline)
+    print_assets_complete(logger, result)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
+    if args.complete_assets:
+        return _complete_assets()
+    if args.run_assets:
+        return _run_assets()
     if args.complete_scene_plan:
         return _complete_scene_plan()
     if args.run_scene_plan:

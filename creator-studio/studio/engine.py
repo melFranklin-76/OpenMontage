@@ -346,6 +346,50 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="scene_plan", pipeline=pipeline)
 
+    def run_assets(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Coordinate the Assets stage as an agent handoff (Scene Plan complete -> Assets -> STOP).
+
+        Thin wrapper around _prepare_stage for the "assets" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Scene Plan must be complete before handoff.
+        """
+
+        if not self._stage_completed(project_dir, "scene_plan"):
+            raise RuntimeError(
+                "Scene Plan stage must be completed before starting Assets. "
+                "Run --complete-scene-plan first."
+            )
+        result = self._prepare_stage(
+            None, project_dir, stage_name="assets", pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
+        # Backward-compat alias expected by console.print_assets_handoff.
+        if result.get("status") == "assets_pending":
+            result["asset_manifest_path"] = result["output_path"]
+        return result
+
+    def complete_assets(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced asset manifest and finalize the stage.
+
+        Thin wrapper around _complete_stage for the "assets" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        """
+
+        return self._complete_stage(project_dir, stage_name="assets", pipeline=pipeline)
+
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
     # ------------------------------------------------------------------

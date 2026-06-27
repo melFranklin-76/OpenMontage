@@ -105,6 +105,19 @@ def _script_complete_project(tmp_path: Path) -> Path:
     return project_dir
 
 
+def _scene_plan_complete_project(tmp_path: Path) -> Path:
+    """Return a project dir where research, proposal, script, AND scene_plan are all completed."""
+
+    project_dir = _script_complete_project(tmp_path)
+    scene_plan = json.loads((FIXTURES / "scene_plan.json").read_text(encoding="utf-8"))
+    (project_dir / "scene_plan").mkdir(parents=True)
+    (project_dir / "scene_plan" / "scene_plan.json").write_text(
+        json.dumps(scene_plan), encoding="utf-8"
+    )
+    Engine().complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+    return project_dir
+
+
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
@@ -1110,3 +1123,157 @@ def test_complete_scene_plan_rejects_invalid_artifact(tmp_path: Path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         engine.complete_scene_plan(project_dir, pipeline=_explainer_pipeline())
+
+
+# ---------------------------------------------------------------------------
+# Assets stage tests
+# ---------------------------------------------------------------------------
+
+def test_run_assets_requires_scene_plan_complete(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Scene Plan stage must be completed"):
+        engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_assets_creates_workspace(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+    assert (project_dir / "assets").is_dir()
+
+
+def test_run_assets_writes_stage_request(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+    sr = json.loads((project_dir / "assets" / "stage_request.json").read_text())
+    assert sr["stage"] == "assets"
+    assert "director_skill_path" in sr
+
+
+def test_run_assets_writes_in_progress_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+    ckpt = json.loads((project_dir / "checkpoint_assets.json").read_text())
+    assert ckpt["status"] == "in_progress"
+
+
+def test_run_assets_sets_run_json_in_progress(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+    run = json.loads((project_dir / "run.json").read_text())
+    assert run["status"] == "assets_in_progress"
+
+
+def test_run_assets_result_includes_compat_keys(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+
+    result = engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "assets_pending"
+    assert "asset_manifest_path" in result
+    assert "director_skill_path" in result
+    assert "schema_path" in result
+
+
+def test_complete_assets_validates_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+    asset_manifest = json.loads((FIXTURES / "asset_manifest.json").read_text(encoding="utf-8"))
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps(asset_manifest), encoding="utf-8"
+    )
+
+    result = engine.complete_assets(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "assets_complete"
+
+
+def test_complete_assets_writes_completed_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+    asset_manifest = json.loads((FIXTURES / "asset_manifest.json").read_text(encoding="utf-8"))
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps(asset_manifest), encoding="utf-8"
+    )
+
+    engine.complete_assets(project_dir, pipeline=_explainer_pipeline())
+
+    ckpt = json.loads((project_dir / "checkpoint_assets.json").read_text())
+    assert ckpt["status"] == "completed"
+
+
+def test_complete_assets_advances_run_json(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+    asset_manifest = json.loads((FIXTURES / "asset_manifest.json").read_text(encoding="utf-8"))
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps(asset_manifest), encoding="utf-8"
+    )
+
+    engine.complete_assets(project_dir, pipeline=_explainer_pipeline())
+
+    run = json.loads((project_dir / "run.json").read_text())
+    assert run["status"] == "assets_complete"
+    assert run["current_stage"] == "assets"
+    assert "assets" in run["completed_stages"]
+    assert run["completed_stages"] == ["research", "proposal", "script", "scene_plan", "assets"]
+    assert run["next_stage"] == "edit"
+
+
+def test_complete_assets_next_stage_is_manifest_driven(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+    asset_manifest = json.loads((FIXTURES / "asset_manifest.json").read_text(encoding="utf-8"))
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps(asset_manifest), encoding="utf-8"
+    )
+
+    result = engine.complete_assets(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["next_stage"] == "edit"
+
+
+def test_run_assets_resume_guard(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+    asset_manifest = json.loads((FIXTURES / "asset_manifest.json").read_text(encoding="utf-8"))
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps(asset_manifest), encoding="utf-8"
+    )
+    engine.complete_assets(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "assets_already_complete"
+    assert result["next_stage"] == "edit"
+
+
+def test_complete_assets_rejects_invalid_artifact(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _scene_plan_complete_project(tmp_path)
+    engine.run_assets(project_dir, pipeline=_explainer_pipeline())
+    (project_dir / "assets" / "asset_manifest.json").write_text(
+        json.dumps({"version": "1.0", "not_assets": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        engine.complete_assets(project_dir, pipeline=_explainer_pipeline())

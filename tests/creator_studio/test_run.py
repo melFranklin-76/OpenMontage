@@ -693,3 +693,134 @@ def test_complete_scene_plan_routing_takes_priority_over_run_scene_plan(
     assert exit_code == 0
     assert "Scene Plan stage complete." in output
 
+
+# ---------------------------------------------------------------------------
+# Assets CLI tests
+# ---------------------------------------------------------------------------
+
+def _fake_engine_with_assets(
+    *,
+    run_assets_result: dict | None = None,
+    complete_assets_result: dict | None = None,
+):
+    """Return a fake Engine class with run_assets / complete_assets stubbed."""
+
+    class FakeEngine:
+        def run_assets(self, project_dir, *, pipeline, **kwargs):
+            return run_assets_result or {}
+
+        def complete_assets(self, project_dir, *, pipeline):
+            return complete_assets_result or {}
+
+    return FakeEngine
+
+
+def test_run_assets_cli_prints_handoff(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    handoff = {
+        "status": "assets_pending",
+        "director_skill_path": "skills/pipelines/explainer/asset-director.md",
+        "asset_manifest_path": str(project_dir / "assets" / "asset_manifest.json"),
+        "schema_path": "schemas/artifacts/asset_manifest.schema.json",
+        "output_path": str(project_dir / "assets" / "asset_manifest.json"),
+        "workspace": str(project_dir / "assets"),
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_assets(run_assets_result=handoff)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-assets"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Assets stage prepared." in output
+    assert "asset-director.md" in output
+
+
+def test_complete_assets_cli_prints_complete(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "assets_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_assets.json"),
+        "next_stage": "edit",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_assets(complete_assets_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--complete-assets"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Assets stage complete." in output
+    assert "Next stage: Edit" in output
+
+
+def test_run_assets_cli_prints_resume(tmp_path: Path, monkeypatch, capsys) -> None:
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    already = {
+        "status": "assets_already_complete",
+        "next_stage": "edit",
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_assets(run_assets_result=already)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-assets"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Assets already completed." in output
+
+
+def test_complete_assets_routing_takes_priority_over_run_assets(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """--complete-assets must be dispatched even when --run-assets is also present."""
+
+    dirs = _patch_dirs(monkeypatch, tmp_path)
+    project_dir = dirs["projects"] / "demo"
+    project_dir.mkdir()
+    (project_dir / "run.json").write_text(
+        json.dumps({"pipeline": "animated-explainer"}), encoding="utf-8"
+    )
+
+    success = {
+        "status": "assets_complete",
+        "checkpoint_path": str(project_dir / "checkpoint_assets.json"),
+        "next_stage": "edit",
+        "elapsed_seconds": 0.01,
+    }
+    monkeypatch.setattr(
+        studio_run, "Engine", _fake_engine_with_assets(complete_assets_result=success)
+    )
+    monkeypatch.setattr(sys, "argv", ["run.py", "--run-assets", "--complete-assets"])
+
+    exit_code = studio_run.main()
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Assets stage complete." in output
+
