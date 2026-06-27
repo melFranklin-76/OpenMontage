@@ -21,6 +21,7 @@ from studio import (
     select_pipeline,
 )
 from studio.console import (
+    print_research_already_complete,
     print_research_complete,
     print_research_handoff,
     render_execution_plan,

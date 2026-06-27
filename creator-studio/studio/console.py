@@ -62,13 +62,19 @@ def render_execution_plan(
         logger.info(f"Warning: {warning}")
 
 
+def print_research_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when research is already done (shared by both commands)."""
+
+    logger.info("Research already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
 def print_research_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
     """Print the --approve handoff block (or blocked / resume variants)."""
 
     status = result.get("status")
     if status == "research_already_complete":
-        logger.info("Research already completed.")
-        logger.info(f"Next stage: {_next_label(result)}")
+        print_research_already_complete(logger, result)
         return
     if status != "research_pending":
         logger.info("Execution remains blocked. Resolve preflight issues before stage work.")
@@ -97,8 +103,7 @@ def print_research_complete(logger: StudioLogger, result: dict[str, Any]) -> Non
     """Print the --complete-research success block (or resume variant)."""
 
     if result.get("status") == "research_already_complete":
-        logger.info("Research already completed.")
-        logger.info(f"Next stage: {_next_label(result)}")
+        print_research_already_complete(logger, result)
         return
     logger.info("Research stage complete.")
     logger.info("Artifacts written.")
