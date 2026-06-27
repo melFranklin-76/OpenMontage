@@ -11,7 +11,7 @@ from tools.base_tool import ToolStatus
 
 from studio.engine import Engine, PreflightResult
 from studio.project import initialize_run_manifest
-from studio.pipeline import PipelineStage, PipelineDefinition
+from studio.pipeline import PipelineStage, PipelineDefinition, load_manifest
 import studio.engine as engine_module
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -30,23 +30,9 @@ class FakeTool:
 
 
 def _explainer_pipeline() -> PipelineDefinition:
-    """Minimal pipeline whose name resolves the real animated-explainer manifest.
+    """Load the real animated-explainer manifest so stage lookups work correctly."""
 
-    Only ``name`` is used by checkpoint/stage-order lookups, which load the real
-    manifest from disk so research -> proposal ordering is exercised faithfully.
-    """
-
-    return PipelineDefinition(
-        name="animated-explainer",
-        manifest_path=Path("pipeline_defs/animated-explainer.yaml"),
-        category="explainer",
-        stability="stable",
-        stages=(),
-        stage_order=(),
-        required_tools=(),
-        optional_tools=(),
-        manifest={},
-    )
+    return load_manifest("animated-explainer")
 
 
 def _passed_plan() -> PreflightResult:
@@ -343,4 +329,148 @@ def test_complete_research_rejects_invalid_brief(tmp_path: Path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         engine.complete_research(project_dir, pipeline=_explainer_pipeline())
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3B.5: manifest-derived stage_request.json fields
+# ---------------------------------------------------------------------------
+
+def test_run_uses_manifest_derived_director_skill_path(tmp_path: Path) -> None:
+    """director_skill_path in stage_request.json must come from pipeline.stage().skill_path."""
+
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+    engine.run(
+        plan=_passed_plan(),
+        project_dir=project_dir,
+        topic="t",
+        pipeline=_explainer_pipeline(),
+        persona="Mel",
+        platform="instagram",
+    )
+    request = json.loads((project_dir / "research" / "stage_request.json").read_text())
+
+    assert request["director_skill_path"] == "skills/pipelines/explainer/research-director.md"
+
+
+def test_run_uses_manifest_derived_schema_path(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+    engine.run(
+        plan=_passed_plan(),
+        project_dir=project_dir,
+        topic="t",
+        pipeline=_explainer_pipeline(),
+        persona="Mel",
+        platform="instagram",
+    )
+    request = json.loads((project_dir / "research" / "stage_request.json").read_text())
+
+    assert request["schema_path"] == "schemas/artifacts/research_brief.schema.json"
+
+
+def test_run_uses_manifest_derived_output_path(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+    engine.run(
+        plan=_passed_plan(),
+        project_dir=project_dir,
+        topic="t",
+        pipeline=_explainer_pipeline(),
+        persona="Mel",
+        platform="instagram",
+    )
+    request = json.loads((project_dir / "research" / "stage_request.json").read_text())
+
+    assert request["output_path"] == "research/research_brief.json"
+
+
+def test_stage_request_includes_requires_approval(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+    engine.run(
+        plan=_passed_plan(),
+        project_dir=project_dir,
+        topic="t",
+        pipeline=_explainer_pipeline(),
+        persona="Mel",
+        platform="instagram",
+    )
+    request = json.loads((project_dir / "research" / "stage_request.json").read_text())
+
+    # research stage has human_approval_default=False in the manifest
+    assert "requires_approval" in request
+    assert request["requires_approval"] is False
+
+
+def test_stage_request_includes_checkpoint_required(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+    engine.run(
+        plan=_passed_plan(),
+        project_dir=project_dir,
+        topic="t",
+        pipeline=_explainer_pipeline(),
+        persona="Mel",
+        platform="instagram",
+    )
+    request = json.loads((project_dir / "research" / "stage_request.json").read_text())
+
+    # research stage has checkpoint_required=False in the manifest
+    assert "checkpoint_required" in request
+    assert request["checkpoint_required"] is False
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3B.5: projections
+# ---------------------------------------------------------------------------
+
+def test_unknown_artifact_projector_returns_empty_list(tmp_path: Path) -> None:
+    from studio.projections import project_sub_artifacts
+
+    out_dir = tmp_path / "unknown_stage"
+    out_dir.mkdir()
+    result = project_sub_artifacts("nonexistent_artifact", {"any": "data"}, out_dir)
+
+    assert result == []
+
+
+def test_research_brief_projector_writes_derived_artifacts(tmp_path: Path) -> None:
+    """Projector must produce the same files as the original _derive_sub_artifacts."""
+
+    from studio.projections import project_sub_artifacts
+
+    brief = json.loads((FIXTURES / "research_brief.json").read_text(encoding="utf-8"))
+    out_dir = tmp_path / "research"
+    out_dir.mkdir()
+
+    written = project_sub_artifacts("research_brief", brief, out_dir)
+
+    assert (out_dir / "citations.json").exists()
+    assert (out_dir / "audience_questions.json").exists()
+    assert (out_dir / "trend_notes.md").exists()
+    assert (out_dir / "visual_references.json").exists()
+    assert "research/citations.json" in written
+    assert "research/audience_questions.json" in written
+    assert "research/trend_notes.md" in written
+    assert "research/visual_references.json" in written
+
+
+def test_research_brief_projector_skips_optional_sections_when_absent(tmp_path: Path) -> None:
+    from studio.projections import project_sub_artifacts
+
+    brief = json.loads((FIXTURES / "research_brief.json").read_text(encoding="utf-8"))
+    brief.pop("trending", None)
+    brief.pop("visual_references", None)
+    out_dir = tmp_path / "research"
+    out_dir.mkdir()
+
+    written = project_sub_artifacts("research_brief", brief, out_dir)
+
+    assert (out_dir / "citations.json").exists()
+    assert (out_dir / "audience_questions.json").exists()
+    assert not (out_dir / "trend_notes.md").exists()
+    assert not (out_dir / "visual_references.json").exists()
+    assert "research/trend_notes.md" not in written
+    assert "research/visual_references.json" not in written
 

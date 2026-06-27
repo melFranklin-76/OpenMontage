@@ -20,12 +20,26 @@ class PipelineStage:
     tools_available: tuple[str, ...]
     checkpoint_required: bool
     human_approval_default: bool
+    produces: tuple[str, ...] = ()
+    required_artifacts_in: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
         """Return a human-readable stage label for CLI output."""
 
         return self.name.replace("_", " ").title()
+
+    @property
+    def skill_path(self) -> str | None:
+        """Fully qualified path to the stage director skill, or None if absent."""
+
+        return f"skills/{self.skill}.md" if self.skill else None
+
+    @property
+    def canonical_artifact(self) -> str | None:
+        """First artifact this stage produces — the contract artifact for the next stage."""
+
+        return self.produces[0] if self.produces else None
 
 
 @dataclass(frozen=True)
@@ -41,6 +55,18 @@ class PipelineDefinition:
     required_tools: tuple[str, ...]
     optional_tools: tuple[str, ...]
     manifest: dict[str, Any]
+
+    def stage(self, name: str) -> PipelineStage:
+        """Return the named stage or raise a clear error if it does not exist."""
+
+        for s in self.stages:
+            if s.name == name:
+                return s
+        available = ", ".join(s.name for s in self.stages) or "(none)"
+        raise KeyError(
+            f"Stage '{name}' not found in pipeline '{self.name}'. "
+            f"Available stages: {available}"
+        )
 
 
 def select_pipeline(
@@ -100,6 +126,8 @@ def _build_stage(stage: dict[str, Any]) -> PipelineStage:
         tools_available=tuple(stage.get("tools_available", [])),
         checkpoint_required=bool(stage.get("checkpoint_required", False)),
         human_approval_default=bool(stage.get("human_approval_default", False)),
+        produces=tuple(stage.get("produces", [])),
+        required_artifacts_in=tuple(stage.get("required_artifacts_in", [])),
     )
 
 
@@ -114,4 +142,3 @@ def _unique_tool_names(tool_groups: Any) -> tuple[str, ...]:
                 ordered.append(tool_name)
                 seen.add(tool_name)
     return tuple(ordered)
-

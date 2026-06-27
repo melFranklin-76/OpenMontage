@@ -22,13 +22,13 @@ from tools.tool_registry import registry
 
 from .pipeline import PipelineDefinition
 from .project import update_run_manifest
+from .projections import project_sub_artifacts
 
-# Paths recorded in the research handoff so the agent knows which director skill
-# to follow and which schema the produced brief must satisfy. OpenMontage has no
-# programmatic stage runner; the agent is the control plane.
-DIRECTOR_SKILL_PATH = "skills/pipelines/explainer/research-director.md"
-RESEARCH_SCHEMA_PATH = "schemas/artifacts/research_brief.schema.json"
-RESEARCH_BRIEF_OUTPUT = "research/research_brief.json"
+
+def schema_path_for(artifact: str) -> str:
+    """Return the canonical schema path for any artifact name."""
+
+    return f"schemas/artifacts/{artifact}.schema.json"
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,10 @@ class PreflightResult:
 
 class Engine:
     """Encapsulate all OpenMontage-aware logic behind a small public surface."""
+
+    # ------------------------------------------------------------------
+    # Public API — stable across milestones
+    # ------------------------------------------------------------------
 
     def preflight(
         self,
@@ -183,81 +187,24 @@ class Engine:
     ) -> dict[str, Any]:
         """Coordinate the Research stage as an agent handoff (Planning -> Research -> STOP).
 
-        OpenMontage has no Python stage runner, so this prepares the workspace,
-        records an ``in_progress`` checkpoint, and hands control to the agent who
-        follows the research-director skill. It never synthesizes research itself.
+        Delegates to _prepare_stage so the same logic can later drive Proposal,
+        Script, and every subsequent stage without duplication. The
+        ``research_brief_path`` key is added here for backward compatibility.
         """
 
-        pipeline_dir = project_dir.parent
-        project_id = project_dir.name
-
-        # Resume guard: never rerun setup once research is complete.
-        if self._research_completed(project_dir):
-            return {
-                "status": "research_already_complete",
-                "execution_started": False,
-                "pipeline": pipeline.name,
-                "next_stage": get_next_stage(pipeline_dir, project_id, pipeline.name),
-            }
-
-        # Blocked guard: preserve Milestone 3A behavior; create no artifacts.
-        if not plan.ready_to_execute:
-            update_run_manifest(project_dir, approved=False, status="blocked")
-            return {
-                "status": "blocked",
-                "execution_started": False,
-                "pipeline": pipeline.name,
-                "next_stage": plan.next_stage,
-            }
-
-        research_dir = project_dir / "research"
-        research_dir.mkdir(parents=True, exist_ok=True)
-        stage_request = {
-            "stage": "research",
-            "topic": topic,
-            "persona": persona,
-            "platform": platform,
-            "pipeline": pipeline.name,
-            "director_skill_path": DIRECTOR_SKILL_PATH,
-            "schema_path": RESEARCH_SCHEMA_PATH,
-            "output_path": RESEARCH_BRIEF_OUTPUT,
-            "instruction": (
-                "Agent must read the director skill and produce a schema-valid "
-                "research_brief at output_path before running --complete-research."
-            ),
-        }
-        request_path = research_dir / "stage_request.json"
-        request_path.write_text(json.dumps(stage_request, indent=2), encoding="utf-8")
-
-        checkpoint_path = write_checkpoint(
-            pipeline_dir=pipeline_dir,
-            project_id=project_id,
-            stage="research",
-            status="in_progress",
-            artifacts={},
-            pipeline_type=pipeline.name,
-        )
-
-        update_run_manifest(
+        result = self._prepare_stage(
+            plan,
             project_dir,
-            approved=True,
-            started=datetime.now(timezone.utc).isoformat(),
-            status="research_in_progress",
-            current_stage="research",
-            next_stage="research",
+            stage_name="research",
+            topic=topic,
+            pipeline=pipeline,
+            persona=persona,
+            platform=platform,
         )
-        return {
-            "status": "research_pending",
-            "execution_started": False,
-            "pipeline": pipeline.name,
-            "workspace": "research/",
-            "stage_request_path": "research/stage_request.json",
-            "director_skill_path": DIRECTOR_SKILL_PATH,
-            "schema_path": RESEARCH_SCHEMA_PATH,
-            "research_brief_path": RESEARCH_BRIEF_OUTPUT,
-            "checkpoint_path": str(checkpoint_path),
-            "next_stage": "research",
-        }
+        # Backward-compat alias expected by run.py and existing tests.
+        if result.get("status") == "research_pending":
+            result["research_brief_path"] = result["output_path"]
+        return result
 
     def complete_research(
         self,
@@ -267,43 +214,162 @@ class Engine:
     ) -> dict[str, Any]:
         """Validate the agent-produced research brief and finalize the stage.
 
-        Reads ``research/research_brief.json`` (produced by the agent via the
-        director skill), validates it against the schema, derives sub-artifacts
-        from the validated brief only, writes the first real ``completed``
-        checkpoint, and advances ``run.json`` to the manifest-driven next stage.
+        Delegates to _complete_stage. The public signature is preserved so that
+        run.py, tests, and any external callers remain unchanged.
+        """
+
+        return self._complete_stage(project_dir, stage_name="research", pipeline=pipeline)
+
+    # ------------------------------------------------------------------
+    # Generic stage lifecycle helpers (manifest-driven)
+    # ------------------------------------------------------------------
+
+    def _prepare_stage(
+        self,
+        plan: PreflightResult,
+        project_dir: Path,
+        *,
+        stage_name: str,
+        topic: str,
+        pipeline: PipelineDefinition,
+        persona: str,
+        platform: str,
+    ) -> dict[str, Any]:
+        """Generic stage-handoff preparation driven entirely by the pipeline manifest.
+
+        Reads stage metadata (skill path, canonical artifact, approval policy)
+        from the manifest rather than hardcoded constants. Handles the resume
+        guard and blocked-preflight guard identically to the original Research
+        implementation.
         """
 
         pipeline_dir = project_dir.parent
         project_id = project_dir.name
 
-        # Duplicate prevention: do not re-ingest or rewrite once completed.
-        if self._research_completed(project_dir):
+        # Resume guard: do not rerun if the stage already has a completed checkpoint.
+        if self._stage_completed(project_dir, stage_name):
             return {
-                "status": "research_already_complete",
+                "status": f"{stage_name}_already_complete",
+                "execution_started": False,
+                "pipeline": pipeline.name,
+                "next_stage": get_next_stage(pipeline_dir, project_id, pipeline.name),
+            }
+
+        # Blocked guard: preserve preflight gate; never create artifacts.
+        if not plan.ready_to_execute:
+            update_run_manifest(project_dir, approved=False, status="blocked")
+            return {
+                "status": "blocked",
+                "execution_started": False,
+                "pipeline": pipeline.name,
+                "next_stage": plan.next_stage,
+            }
+
+        stage = pipeline.stage(stage_name)
+        artifact = stage.canonical_artifact
+        workspace = project_dir / stage_name
+        workspace.mkdir(parents=True, exist_ok=True)
+        output_path = f"{stage_name}/{artifact}.json"
+
+        stage_request: dict[str, Any] = {
+            "stage": stage_name,
+            "topic": topic,
+            "persona": persona,
+            "platform": platform,
+            "pipeline": pipeline.name,
+            "director_skill_path": stage.skill_path,
+            "schema_path": schema_path_for(artifact),
+            "output_path": output_path,
+            "requires_approval": stage.human_approval_default,
+            "checkpoint_required": stage.checkpoint_required,
+            "instruction": (
+                f"Agent must read the director skill and produce a schema-valid "
+                f"{artifact} at output_path before running --complete-{stage_name}."
+            ),
+        }
+        (workspace / "stage_request.json").write_text(
+            json.dumps(stage_request, indent=2), encoding="utf-8"
+        )
+
+        checkpoint_path = write_checkpoint(
+            pipeline_dir=pipeline_dir,
+            project_id=project_id,
+            stage=stage_name,
+            status="in_progress",
+            artifacts={},
+            pipeline_type=pipeline.name,
+        )
+
+        update_run_manifest(
+            project_dir,
+            approved=True,
+            started=datetime.now(timezone.utc).isoformat(),
+            status=f"{stage_name}_in_progress",
+            current_stage=stage_name,
+            next_stage=stage_name,
+        )
+
+        return {
+            "status": f"{stage_name}_pending",
+            "execution_started": False,
+            "pipeline": pipeline.name,
+            "workspace": f"{stage_name}/",
+            "stage_request_path": f"{stage_name}/stage_request.json",
+            "director_skill_path": stage.skill_path,
+            "schema_path": schema_path_for(artifact),
+            "output_path": output_path,
+            "checkpoint_path": str(checkpoint_path),
+            "next_stage": stage_name,
+        }
+
+    def _complete_stage(
+        self,
+        project_dir: Path,
+        *,
+        stage_name: str,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Generic stage-completion handler driven by the pipeline manifest.
+
+        Loads the canonical artifact produced by the agent, validates it against
+        the registered schema, runs the stage projector to derive companion files,
+        writes the completed checkpoint, and advances run.json.
+        """
+
+        pipeline_dir = project_dir.parent
+        project_id = project_dir.name
+
+        # Idempotency guard.
+        if self._stage_completed(project_dir, stage_name):
+            return {
+                "status": f"{stage_name}_already_complete",
                 "pipeline": pipeline.name,
                 "next_stage": get_next_stage(pipeline_dir, project_id, pipeline.name),
             }
 
         start = time.monotonic()
-        brief_path = project_dir / "research" / "research_brief.json"
-        if not brief_path.exists():
+        stage = pipeline.stage(stage_name)
+        artifact = stage.canonical_artifact
+        workspace = project_dir / stage_name
+        artifact_path = workspace / f"{artifact}.json"
+
+        if not artifact_path.exists():
             raise FileNotFoundError(
-                f"Research brief not found at {brief_path}. Produce it via the "
-                "research-director skill before running --complete-research."
+                f"{artifact} not found at {artifact_path}. Produce it via the "
+                f"{stage_name}-director skill before running --complete-{stage_name}."
             )
 
-        brief = json.loads(brief_path.read_text(encoding="utf-8"))
-        # Raises jsonschema.ValidationError if the agent's brief is not valid.
-        validate_artifact("research_brief", brief)
+        data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        validate_artifact(artifact, data)
 
-        artifacts_written = self._derive_sub_artifacts(brief, project_dir / "research")
+        artifacts_written = project_sub_artifacts(artifact, data, workspace)
 
         checkpoint_path = write_checkpoint(
             pipeline_dir=pipeline_dir,
             project_id=project_id,
-            stage="research",
+            stage=stage_name,
             status="completed",
-            artifacts={"research_brief": brief},
+            artifacts={artifact: data},
             pipeline_type=pipeline.name,
         )
 
@@ -311,14 +377,15 @@ class Engine:
         completed_stages = get_completed_stages(pipeline_dir, project_id, pipeline.name)
         update_run_manifest(
             project_dir,
-            status="research_complete",
-            current_stage="research",
+            status=f"{stage_name}_complete",
+            current_stage=stage_name,
             completed_stages=completed_stages,
             next_stage=next_stage,
             completed=datetime.now(timezone.utc).isoformat(),
         )
+
         return {
-            "status": "research_complete",
+            "status": f"{stage_name}_complete",
             "pipeline": pipeline.name,
             "checkpoint_path": str(checkpoint_path),
             "artifacts_written": artifacts_written,
@@ -326,38 +393,24 @@ class Engine:
             "elapsed_seconds": round(time.monotonic() - start, 3),
         }
 
-    def _research_completed(self, project_dir: Path) -> bool:
-        """Return True when a completed research checkpoint already exists."""
+    # ------------------------------------------------------------------
+    # Stage state helpers
+    # ------------------------------------------------------------------
 
-        checkpoint = read_checkpoint(project_dir.parent, project_dir.name, "research")
+    def _stage_completed(self, project_dir: Path, stage_name: str) -> bool:
+        """Return True when the named stage has a completed checkpoint."""
+
+        checkpoint = read_checkpoint(project_dir.parent, project_dir.name, stage_name)
         return bool(checkpoint and checkpoint.get("status") == "completed")
 
-    @staticmethod
-    def _derive_sub_artifacts(brief: dict[str, Any], research_dir: Path) -> list[str]:
-        """Project sub-artifacts from the validated brief only (never fabricate)."""
+    def _research_completed(self, project_dir: Path) -> bool:
+        """Backward-compatible alias for _stage_completed('research')."""
 
-        research_dir.mkdir(parents=True, exist_ok=True)
-        written: list[str] = []
+        return self._stage_completed(project_dir, "research")
 
-        def _dump(name: str, data: Any) -> None:
-            (research_dir / name).write_text(json.dumps(data, indent=2), encoding="utf-8")
-            written.append(f"research/{name}")
-
-        _dump("citations.json", brief["sources"])
-        _dump("audience_questions.json", brief["audience_insights"]["common_questions"])
-
-        trending = brief.get("trending")
-        if trending:
-            (research_dir / "trend_notes.md").write_text(
-                _render_trend_notes(trending), encoding="utf-8"
-            )
-            written.append("research/trend_notes.md")
-
-        visual_references = brief.get("visual_references")
-        if visual_references:
-            _dump("visual_references.json", visual_references)
-
-        return written
+    # ------------------------------------------------------------------
+    # Preflight helpers
+    # ------------------------------------------------------------------
 
     def _collect_available_fallbacks(self, tool_name: str) -> tuple[str, ...]:
         """Return available fallback tool names for a missing tool."""
@@ -421,33 +474,3 @@ class Engine:
 
         tool = registry.get(tool_name)
         return bool(tool and tool.get_status() == ToolStatus.AVAILABLE)
-
-
-def _render_trend_notes(trending: dict[str, Any]) -> str:
-    """Render trend_notes.md from the brief's trending block (real data only)."""
-
-    lines = ["# Trend Notes", ""]
-    for item in trending.get("recent_developments") or []:
-        if "## Recent Developments" not in lines:
-            lines.append("## Recent Developments")
-        headline = item.get("headline", "")
-        date = item.get("date", "")
-        suffix = f" ({date})" if date else ""
-        relevance = item.get("relevance", "")
-        entry = f"- {headline}{suffix} — {relevance}".rstrip(" —")
-        if item.get("url"):
-            entry += f" [{item['url']}]"
-        lines.append(entry)
-    discussions = trending.get("active_discussions") or []
-    if discussions:
-        lines.extend(["", "## Active Discussions"])
-        for item in discussions:
-            platform = item.get("platform", "")
-            topic_or_url = item.get("topic_or_url", "")
-            sentiment = item.get("sentiment", "")
-            lines.append(f"- {platform}: {topic_or_url} — {sentiment}".rstrip(" —"))
-    window = trending.get("timeliness_window")
-    if window:
-        lines.extend(["", f"Timeliness window: {window}"])
-    return "\n".join(lines).rstrip() + "\n"
-

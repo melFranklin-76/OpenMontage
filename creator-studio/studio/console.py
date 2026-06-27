@@ -12,9 +12,16 @@ from .logger import StudioLogger
 
 
 def _next_label(result: dict[str, Any]) -> str:
-    """Title-case the manifest-driven next stage (defaults to Proposal)."""
+    """Format the manifest-driven next stage for human display.
 
-    return (result.get("next_stage") or "proposal").title()
+    Replaces underscores with spaces and title-cases the result.
+    Falls back to 'Done' when no next stage is set.
+    """
+
+    raw = result.get("next_stage")
+    if not raw:
+        return "Done"
+    return raw.replace("_", " ").title()
 
 
 def render_execution_plan(
