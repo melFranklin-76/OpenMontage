@@ -26,6 +26,8 @@ from studio.console import (
     print_research_already_complete,
     print_research_complete,
     print_research_handoff,
+    print_script_complete,
+    print_script_handoff,
     render_execution_plan,
 )
 
@@ -41,6 +43,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--complete-research", dest="complete_research", action="store_true")
     parser.add_argument("--run-proposal", dest="run_proposal", action="store_true")
     parser.add_argument("--complete-proposal", dest="complete_proposal", action="store_true")
+    parser.add_argument("--run-script", dest="run_script", action="store_true")
+    parser.add_argument("--complete-script", dest="complete_script", action="store_true")
     return parser.parse_args()
 
 
@@ -84,9 +88,27 @@ def _complete_proposal() -> int:
     return 0
 
 
+def _run_script() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().run_script(project_dir, pipeline=pipeline)
+    print_script_handoff(logger, result)
+    return 0
+
+
+def _complete_script() -> int:
+    project_dir, pipeline, logger = _resolve()
+    result = Engine().complete_script(project_dir, pipeline=pipeline)
+    print_script_complete(logger, result)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
+    if args.complete_script:
+        return _complete_script()
+    if args.run_script:
+        return _run_script()
     if args.complete_proposal:
         return _complete_proposal()
     if args.run_proposal:

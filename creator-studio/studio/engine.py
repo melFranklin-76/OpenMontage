@@ -258,6 +258,50 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="proposal", pipeline=pipeline)
 
+    def run_script(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Coordinate the Script stage as an agent handoff (Proposal complete -> Script -> STOP).
+
+        Thin wrapper around _prepare_stage for the "script" stage. All paths
+        and schema references are derived from the pipeline manifest — no
+        hardcoded constants. Proposal must be complete before handoff.
+        """
+
+        if not self._stage_completed(project_dir, "proposal"):
+            raise RuntimeError(
+                "Proposal stage must be completed before starting Script. "
+                "Run --complete-proposal first."
+            )
+        result = self._prepare_stage(
+            None, project_dir, stage_name="script", pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
+        # Backward-compat alias expected by console.print_script_handoff.
+        if result.get("status") == "script_pending":
+            result["script_path"] = result["output_path"]
+        return result
+
+    def complete_script(
+        self,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Validate the agent-produced script and finalize the stage.
+
+        Thin wrapper around _complete_stage for the "script" stage. Validation
+        schema, artifact name, and next-stage resolution are all manifest-driven.
+        """
+
+        return self._complete_stage(project_dir, stage_name="script", pipeline=pipeline)
+
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
     # ------------------------------------------------------------------

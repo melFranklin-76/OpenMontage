@@ -178,3 +178,57 @@ def print_proposal_complete(logger: StudioLogger, result: dict[str, Any]) -> Non
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Proposal by design.")
+
+
+# ---------------------------------------------------------------------------
+# Script stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_script_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when script is already done."""
+
+    logger.info("Script already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_script_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-script handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "script_already_complete":
+        print_script_already_complete(logger, result)
+        return
+    if status != "script_pending":
+        logger.info("Script cannot start: proposal stage is not complete.")
+        return
+    for line in (
+        "Script stage prepared.",
+        "",
+        "Workspace:",
+        "  script/",
+        "",
+        "Stage request:",
+        "  script/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['script_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Script handoff by design.",
+        "Run again with --complete-script after the script artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_script_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-script success block (or resume variant)."""
+
+    if result.get("status") == "script_already_complete":
+        print_script_already_complete(logger, result)
+        return
+    logger.info("Script stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Script by design.")

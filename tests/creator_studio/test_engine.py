@@ -79,6 +79,19 @@ def _research_complete_project(tmp_path: Path) -> Path:
     return project_dir
 
 
+def _proposal_complete_project(tmp_path: Path) -> Path:
+    """Return a project dir where research AND proposal stages are both completed."""
+
+    project_dir = _research_complete_project(tmp_path)
+    packet = json.loads((FIXTURES / "proposal_packet.json").read_text(encoding="utf-8"))
+    (project_dir / "proposal").mkdir(parents=True)
+    (project_dir / "proposal" / "proposal_packet.json").write_text(
+        json.dumps(packet), encoding="utf-8"
+    )
+    Engine().complete_proposal(project_dir, pipeline=_explainer_pipeline())
+    return project_dir
+
+
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
@@ -693,3 +706,199 @@ def test_complete_proposal_updates_run_json_completed_stages(tmp_path: Path) -> 
     run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
     assert run_manifest["completed_stages"] == ["research", "proposal"]
     assert run_manifest["current_stage"] == "proposal"
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3D: Script stage
+# ---------------------------------------------------------------------------
+
+def test_run_script_requires_proposal_complete(tmp_path: Path) -> None:
+    """Script handoff must raise when proposal is not yet complete."""
+
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Proposal stage must be completed"):
+        engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_script_prepares_handoff(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    result = engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    script_dir = project_dir / "script"
+    request = json.loads((script_dir / "stage_request.json").read_text(encoding="utf-8"))
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_script.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "script_pending"
+    assert script_dir.is_dir()
+    assert request["stage"] == "script"
+    # Manifest-derived paths — no hardcoded constants.
+    assert request["director_skill_path"] == "skills/pipelines/explainer/script-director.md"
+    assert request["schema_path"] == "schemas/artifacts/script.schema.json"
+    assert request["output_path"] == "script/script.json"
+    # Manifest-driven approval and checkpoint policy.
+    assert request["requires_approval"] is True    # script: human_approval_default=True
+    assert request["checkpoint_required"] is True  # script: checkpoint_required=True
+    assert checkpoint["status"] == "in_progress"
+    assert checkpoint["stage"] == "script"
+    assert run_manifest["status"] == "script_in_progress"
+    assert run_manifest["current_stage"] == "script"
+    assert run_manifest["next_stage"] == "script"
+
+
+def test_run_script_result_includes_compat_keys(tmp_path: Path) -> None:
+    """result must contain script_path so console.print_script_handoff works."""
+
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    result = engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["script_path"] == "script/script.json"
+    assert result["director_skill_path"] == "skills/pipelines/explainer/script-director.md"
+    assert result["schema_path"] == "schemas/artifacts/script.schema.json"
+
+
+def test_run_script_creates_script_dir(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    assert (project_dir / "script").is_dir()
+    assert (project_dir / "script" / "stage_request.json").exists()
+
+
+def test_run_script_writes_in_progress_checkpoint(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_script.json").read_text(encoding="utf-8")
+    )
+    assert checkpoint["status"] == "in_progress"
+    assert checkpoint["stage"] == "script"
+
+
+def test_run_script_updates_run_json_to_in_progress(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_manifest["status"] == "script_in_progress"
+    assert run_manifest["current_stage"] == "script"
+
+
+def test_complete_script_validates_and_finalizes(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+    engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    script = json.loads((FIXTURES / "script.json").read_text(encoding="utf-8"))
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps(script), encoding="utf-8"
+    )
+
+    result = engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+    checkpoint = json.loads(
+        (project_dir / "checkpoint_script.json").read_text(encoding="utf-8")
+    )
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "script_complete"
+    assert result["next_stage"] == "scene_plan"
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["artifacts"]["script"]["title"] == script["title"]
+    assert run_manifest["status"] == "script_complete"
+    assert "script" in run_manifest["completed_stages"]
+    assert run_manifest["next_stage"] == "scene_plan"
+
+
+def test_complete_script_completed_stages_includes_all_three(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+    engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    script = json.loads((FIXTURES / "script.json").read_text(encoding="utf-8"))
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps(script), encoding="utf-8"
+    )
+    engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+    run_manifest = json.loads((project_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_manifest["completed_stages"] == ["research", "proposal", "script"]
+
+
+def test_complete_script_next_stage_is_manifest_driven(tmp_path: Path) -> None:
+    """next_stage must come from the manifest, not a hardcoded string."""
+
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+    engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    script = json.loads((FIXTURES / "script.json").read_text(encoding="utf-8"))
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps(script), encoding="utf-8"
+    )
+    result = engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+    # The animated-explainer pipeline places scene_plan after script.
+    assert result["next_stage"] == "scene_plan"
+
+
+def test_complete_script_is_idempotent(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    script = json.loads((FIXTURES / "script.json").read_text(encoding="utf-8"))
+    (project_dir / "script").mkdir(parents=True)
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps(script), encoding="utf-8"
+    )
+    engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+    # Second call must return already_complete without rewriting.
+    result = engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "script_already_complete"
+    assert result["next_stage"] == "scene_plan"
+
+
+def test_run_script_resume_skips_when_script_complete(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    script = json.loads((FIXTURES / "script.json").read_text(encoding="utf-8"))
+    (project_dir / "script").mkdir(parents=True)
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps(script), encoding="utf-8"
+    )
+    engine.complete_script(project_dir, pipeline=_explainer_pipeline())
+
+    result = engine.run_script(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "script_already_complete"
+    assert result["next_stage"] == "scene_plan"
+
+
+def test_complete_script_rejects_invalid_script(tmp_path: Path) -> None:
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+    (project_dir / "script").mkdir()
+    (project_dir / "script" / "script.json").write_text(
+        json.dumps({"version": "1.0", "incomplete": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        engine.complete_script(project_dir, pipeline=_explainer_pipeline())
