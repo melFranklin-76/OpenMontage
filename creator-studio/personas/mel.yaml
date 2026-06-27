@@ -1,0 +1,12 @@
+name: Mel
+voice: conversational, warm, direct
+platforms:
+  - instagram
+  - youtube
+  - x
+default_pipeline: talking-head
+default_platform: instagram
+branding:
+  handle: "@mel"
+  style: clean-professional
+

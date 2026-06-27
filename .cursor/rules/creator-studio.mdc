@@ -1,0 +1,58 @@
+---
+description: Creator Studio project guidance
+alwaysApply: true
+---
+
+# Creator Studio
+
+This repository contains the OpenMontage engine.
+
+The `creator-studio/` directory is a creator workflow built on top of OpenMontage.
+
+## Primary Goal
+
+Turn raw cooking videos into polished social media content with minimal manual editing.
+
+## Project Priorities
+
+1. Preserve original media.
+2. Automate repetitive work.
+3. Prefer existing OpenMontage tools before creating new ones.
+4. Keep generated files inside creator-studio/.
+5. Explain architectural changes before implementing them.
+6. Build reusable Python modules instead of one-off scripts.
+7. Test code before marking work complete.
+
+## Preferred Workflow
+
+Raw video
+→ Analyze
+→ Detect scenes
+→ Remove silence
+→ Generate captions
+→ Add branding
+→ Render
+→ Export vertical and horizontal versions
+→ Prepare for publishing
+
+Never duplicate functionality already available in tools/.
+---
+description: Creator Studio workflow
+alwaysApply: true
+---
+
+# Creator Studio Rules
+
+You are helping build Creator Studio inside OpenMontage.
+
+Goals:
+- Produce professional cooking and lifestyle content.
+- Preserve original media unless explicitly told otherwise.
+- Build reusable automation.
+- Prefer Python and shell scripts already in the repository.
+- Keep all generated files inside creator-studio/.
+- Explain major architectural decisions before making them.
+- Never hardcode paths.
+- Use relative paths.
+- Make changes in small commits.
+- Test before declaring success.

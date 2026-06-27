@@ -1,0 +1,7 @@
+platform: instagram
+aspect_ratio: "9:16"
+max_duration_seconds: 90
+caption_style: short
+hashtags: true
+thumbnail: true
+

@@ -1,0 +1,7 @@
+platform: youtube
+aspect_ratio: "16:9"
+max_duration_seconds: 600
+caption_style: medium
+hashtags: true
+thumbnail: true
+
