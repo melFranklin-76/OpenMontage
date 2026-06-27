@@ -238,7 +238,11 @@ class Engine:
                 "Research stage must be completed before starting Proposal. "
                 "Run --complete-research first."
             )
-        return self._prepare_stage(None, project_dir, stage_name="proposal", pipeline=pipeline)
+        result = self._prepare_stage(None, project_dir, stage_name="proposal", pipeline=pipeline)
+        # Backward-compat alias expected by console.print_proposal_handoff.
+        if result.get("status") == "proposal_pending":
+            result["proposal_packet_path"] = result["output_path"]
+        return result
 
     def complete_proposal(
         self,

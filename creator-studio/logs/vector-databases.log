@@ -25,3 +25,99 @@
 2026-06-27T04:21:14.111981+00:00 INFO Stopping after Research by design.
 2026-06-27T04:21:14.196161+00:00 INFO Research already completed.
 2026-06-27T04:21:14.196312+00:00 INFO Next stage: Proposal
+2026-06-27T06:53:31.208134+00:00 INFO ==================================
+2026-06-27T06:53:31.209871+00:00 INFO MEL CREATOR STUDIO
+2026-06-27T06:53:31.210327+00:00 INFO ==================================
+2026-06-27T06:53:31.212841+00:00 INFO Project: vector-databases
+2026-06-27T06:53:31.213354+00:00 INFO Persona: Mel
+2026-06-27T06:53:31.213683+00:00 INFO Pipeline: Animated Explainer
+2026-06-27T06:53:31.214066+00:00 INFO Platform: Instagram
+2026-06-27T06:53:31.214366+00:00 INFO Status: DEGRADED
+2026-06-27T06:53:31.214585+00:00 INFO ==================================
+2026-06-27T06:53:31.214844+00:00 INFO Scanning inbox...
+2026-06-27T06:53:31.215116+00:00 INFO Found:
+2026-06-27T06:53:31.215334+00:00 INFO 1 videos
+2026-06-27T06:53:31.215616+00:00 INFO 0 images
+2026-06-27T06:53:31.215853+00:00 INFO 0 audio
+2026-06-27T06:53:31.216118+00:00 INFO 
+2026-06-27T06:53:31.217051+00:00 INFO ==================================
+2026-06-27T06:53:31.217406+00:00 INFO EXECUTION PLAN
+2026-06-27T06:53:31.217797+00:00 INFO ==================================
+2026-06-27T06:53:31.218101+00:00 INFO Stages
+2026-06-27T06:53:31.219415+00:00 INFO [x] Research
+2026-06-27T06:53:31.220161+00:00 INFO [x] Proposal
+2026-06-27T06:53:31.221925+00:00 INFO [x] Script
+2026-06-27T06:53:31.222703+00:00 INFO [x] Scene Plan
+2026-06-27T06:53:31.223842+00:00 INFO [x] Assets
+2026-06-27T06:53:31.224349+00:00 INFO [x] Edit
+2026-06-27T06:53:31.225485+00:00 INFO [x] Compose
+2026-06-27T06:53:31.225985+00:00 INFO [x] Publish
+2026-06-27T06:53:31.228125+00:00 INFO Capability Status: DEGRADED
+2026-06-27T06:53:31.229545+00:00 INFO analysis: 7 available of 11
+2026-06-27T06:53:31.230513+00:00 INFO audio_processing: 2 available of 2
+2026-06-27T06:53:31.231396+00:00 INFO avatar: 0 available of 2
+2026-06-27T06:53:31.232967+00:00 INFO character_animation: 6 available of 6
+2026-06-27T06:53:31.233139+00:00 INFO clip_acquisition: 1 available of 1
+2026-06-27T06:53:31.233401+00:00 INFO clip_retrieval: 0 available of 1
+2026-06-27T06:53:31.233740+00:00 INFO corpus_population: 0 available of 1
+2026-06-27T06:53:31.233877+00:00 INFO enhancement: 2 available of 6
+2026-06-27T06:53:31.233970+00:00 INFO graphics: 2 available of 3
+2026-06-27T06:53:31.234057+00:00 INFO image_generation: 2 available of 9
+2026-06-27T06:53:31.234151+00:00 INFO music_generation: 0 available of 2
+2026-06-27T06:53:31.234340+00:00 INFO music_search: 1 available of 2
+2026-06-27T06:53:31.234443+00:00 INFO screen_capture: 2 available of 2
+2026-06-27T06:53:31.234539+00:00 INFO source_ingest: 0 available of 1
+2026-06-27T06:53:31.234626+00:00 INFO subtitle: 2 available of 2
+2026-06-27T06:53:31.234817+00:00 INFO tts: 1 available of 5
+2026-06-27T06:53:31.234974+00:00 INFO video_generation: 0 available of 16
+2026-06-27T06:53:31.235078+00:00 INFO video_post: 9 available of 9
+2026-06-27T06:53:31.235175+00:00 INFO Render Engines: FFmpeg, Remotion, HyperFrames
+2026-06-27T06:53:31.235262+00:00 INFO Recommendation: Remotion
+2026-06-27T06:53:31.235349+00:00 INFO Warning: Optional tool 'video_selector' is unavailable.
+2026-06-27T06:53:31.235434+00:00 INFO Warning: Optional tool 'math_animate' is unavailable.
+2026-06-27T06:53:31.235553+00:00 INFO Warning: Optional tool 'music_gen' is unavailable.
+2026-06-27T06:53:31.402308+00:00 INFO Research stage prepared.
+2026-06-27T06:53:31.402553+00:00 INFO 
+2026-06-27T06:53:31.402707+00:00 INFO Workspace:
+2026-06-27T06:53:31.402819+00:00 INFO   research/
+2026-06-27T06:53:31.402987+00:00 INFO 
+2026-06-27T06:53:31.403365+00:00 INFO Stage request:
+2026-06-27T06:53:31.403593+00:00 INFO   research/stage_request.json
+2026-06-27T06:53:31.403697+00:00 INFO 
+2026-06-27T06:53:31.403820+00:00 INFO Agent handoff:
+2026-06-27T06:53:31.403964+00:00 INFO   Read skills/pipelines/explainer/research-director.md
+2026-06-27T06:53:31.404055+00:00 INFO   Produce research/research_brief.json
+2026-06-27T06:53:31.404152+00:00 INFO   Validate against schemas/artifacts/research_brief.schema.json
+2026-06-27T06:53:31.404242+00:00 INFO 
+2026-06-27T06:53:31.404421+00:00 INFO Stopping after Research handoff by design.
+2026-06-27T06:53:31.404595+00:00 INFO Run again with --complete-research after the research brief exists.
+2026-06-27T06:57:03.947453+00:00 INFO Research stage complete.
+2026-06-27T06:57:03.948329+00:00 INFO Artifacts written.
+2026-06-27T06:57:03.948378+00:00 INFO   research/citations.json
+2026-06-27T06:57:03.948414+00:00 INFO   research/audience_questions.json
+2026-06-27T06:57:03.948445+00:00 INFO   research/trend_notes.md
+2026-06-27T06:57:03.948475+00:00 INFO   research/visual_references.json
+2026-06-27T06:57:03.948505+00:00 INFO Checkpoint saved: /Users/melfranklin/AIProjects/OpenMontage/creator-studio/projects/vector-databases/checkpoint_research.json
+2026-06-27T06:57:03.948538+00:00 INFO Elapsed: 0.139s
+2026-06-27T06:57:03.948570+00:00 INFO Next stage: Proposal
+2026-06-27T06:57:03.948599+00:00 INFO Stopping after Research by design.
+2026-06-27T07:59:38.819646+00:00 INFO Proposal stage prepared.
+2026-06-27T07:59:38.819918+00:00 INFO 
+2026-06-27T07:59:38.819957+00:00 INFO Workspace:
+2026-06-27T07:59:38.819991+00:00 INFO   proposal/
+2026-06-27T07:59:38.820019+00:00 INFO 
+2026-06-27T07:59:38.820052+00:00 INFO Stage request:
+2026-06-27T07:59:38.820083+00:00 INFO   proposal/stage_request.json
+2026-06-27T07:59:38.820113+00:00 INFO 
+2026-06-27T07:59:38.820145+00:00 INFO Agent handoff:
+2026-06-27T07:59:38.820173+00:00 INFO   Read skills/pipelines/explainer/proposal-director.md
+2026-06-27T07:59:38.820202+00:00 INFO   Produce proposal/proposal_packet.json
+2026-06-27T07:59:38.820230+00:00 INFO   Validate against schemas/artifacts/proposal_packet.schema.json
+2026-06-27T07:59:38.820259+00:00 INFO 
+2026-06-27T07:59:38.820286+00:00 INFO Stopping after Proposal handoff by design.
+2026-06-27T07:59:38.820316+00:00 INFO Run again with --complete-proposal after the proposal packet exists.
+2026-06-27T08:00:43.091363+00:00 INFO Proposal stage complete.
+2026-06-27T08:00:43.091653+00:00 INFO Checkpoint saved: /Users/melfranklin/AIProjects/OpenMontage/creator-studio/projects/vector-databases/checkpoint_proposal.json
+2026-06-27T08:00:43.091693+00:00 INFO Elapsed: 0.211s
+2026-06-27T08:00:43.091736+00:00 INFO Next stage: Script
+2026-06-27T08:00:43.091787+00:00 INFO Stopping after Proposal by design.

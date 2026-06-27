@@ -540,6 +540,19 @@ def test_run_proposal_prepares_handoff(tmp_path: Path) -> None:
     assert run_manifest["next_stage"] == "proposal"
 
 
+def test_run_proposal_result_includes_compat_keys(tmp_path: Path) -> None:
+    """result must contain proposal_packet_path so console.print_proposal_handoff works."""
+
+    engine = Engine()
+    project_dir = _research_complete_project(tmp_path)
+
+    result = engine.run_proposal(project_dir, pipeline=_explainer_pipeline())
+
+    assert result["proposal_packet_path"] == "proposal/proposal_packet.json"
+    assert result["director_skill_path"] == "skills/pipelines/explainer/proposal-director.md"
+    assert result["schema_path"] == "schemas/artifacts/proposal_packet.schema.json"
+
+
 def test_run_proposal_creates_proposal_dir(tmp_path: Path) -> None:
     engine = Engine()
     project_dir = _research_complete_project(tmp_path)
