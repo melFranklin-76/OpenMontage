@@ -18,66 +18,20 @@ After the final Publish completion, the test asserts:
 import json
 from pathlib import Path
 
-import pytest
+from studio.engine import Engine
 
-from studio.engine import Engine, PreflightResult
-from studio.pipeline import load_manifest
-from studio.project import initialize_run_manifest
+# Shared helpers — conftest.py puts itself on sys.path at collection time.
+from conftest import (
+    FIXTURES,
+    explainer_pipeline as _pipeline,
+    passed_plan as _passed_plan,
+    make_project,
+    copy_fixture as _copy_fixture,
+)
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-FIXTURES = Path(__file__).parent / "fixtures"
-
-PIPELINE_NAME = "animated-explainer"
 TOPIC = "Vector databases explained"
 PERSONA = "Mel"
 PLATFORM = "instagram"
-
-
-def _pipeline():
-    return load_manifest(PIPELINE_NAME)
-
-
-def _passed_plan() -> PreflightResult:
-    return PreflightResult(
-        status="passed",
-        pipeline=PIPELINE_NAME,
-        project_id="dry_run",
-        required_tools=(),
-        available_tools=(),
-        missing_tools=(),
-        optional_warnings=(),
-        render_engines=("Remotion",),
-        recommendation="Remotion",
-        execution_plan=("Research", "Proposal"),
-        estimated_stages=2,
-        ready_to_execute=True,
-        fallback_tools={},
-        composition_runtimes={"remotion": True},
-        warnings=(),
-        capability_summary=(),
-        completed_stages=(),
-        next_stage="research",
-        latest_checkpoint_stage=None,
-    )
-
-
-def _init_project(tmp_path: Path) -> Path:
-    project_dir = tmp_path / "dry_run"
-    project_dir.mkdir()
-    initialize_run_manifest(project_dir, "dry_run", PERSONA, PIPELINE_NAME, PLATFORM)
-    return project_dir
-
-
-def _copy_fixture(name: str, destination: Path) -> None:
-    """Write a fixture JSON file into the given destination path."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        (FIXTURES / name).read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +43,7 @@ def test_full_pipeline_dry_run_reaches_publish_complete(tmp_path: Path) -> None:
 
     engine = Engine()
     pipeline = _pipeline()
-    project_dir = _init_project(tmp_path)
+    project_dir = make_project(tmp_path, project_id="dry_run")
 
     # ------------------------------------------------------------------
     # Stage 1: Research handoff  →  complete

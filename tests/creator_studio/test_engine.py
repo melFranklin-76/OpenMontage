@@ -10,11 +10,19 @@ import pytest
 from tools.base_tool import ToolStatus
 
 from studio.engine import Engine, PreflightResult
+from studio.pipeline import PipelineStage, PipelineDefinition
 from studio.project import initialize_run_manifest
-from studio.pipeline import PipelineStage, PipelineDefinition, load_manifest
 import studio.engine as engine_module
 
-FIXTURES = Path(__file__).parent / "fixtures"
+# Shared helpers and constants from conftest (importable because conftest adds
+# its own directory to sys.path at collection time).
+from conftest import (
+    FIXTURES,
+    explainer_pipeline as _explainer_pipeline,
+    passed_plan as _passed_plan,
+    make_project as _make_project,
+    copy_fixture as _copy_fixture,
+)
 
 
 @dataclass
@@ -27,43 +35,6 @@ class FakeTool:
 
     def get_status(self) -> ToolStatus:
         return self.status
-
-
-def _explainer_pipeline() -> PipelineDefinition:
-    """Load the real animated-explainer manifest so stage lookups work correctly."""
-
-    return load_manifest("animated-explainer")
-
-
-def _passed_plan() -> PreflightResult:
-    return PreflightResult(
-        status="passed",
-        pipeline="animated-explainer",
-        project_id="demo",
-        required_tools=(),
-        available_tools=(),
-        missing_tools=(),
-        optional_warnings=(),
-        render_engines=("Remotion",),
-        recommendation="Remotion",
-        execution_plan=("Research", "Proposal"),
-        estimated_stages=2,
-        ready_to_execute=True,
-        fallback_tools={},
-        composition_runtimes={"remotion": True},
-        warnings=(),
-        capability_summary=(),
-        completed_stages=(),
-        next_stage="research",
-        latest_checkpoint_stage=None,
-    )
-
-
-def _make_project(tmp_path: Path) -> Path:
-    project_dir = tmp_path / "demo"
-    project_dir.mkdir()
-    initialize_run_manifest(project_dir, "demo", "Mel", "animated-explainer", "instagram")
-    return project_dir
 
 
 def _research_complete_project(tmp_path: Path) -> Path:
