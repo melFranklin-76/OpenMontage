@@ -1751,3 +1751,97 @@ def test_complete_publish_rejects_invalid_artifact(tmp_path: Path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         engine.complete_publish(project_dir, pipeline=_explainer_pipeline())
+
+
+# ---------------------------------------------------------------------------
+# Milestone 3L: Generic stage dispatch (run_stage / complete_stage)
+# ---------------------------------------------------------------------------
+
+def test_run_stage_requires_prior_stage_complete(tmp_path: Path) -> None:
+    """run_stage enforces manifest-ordered prerequisites just like run_script."""
+
+    engine = Engine()
+    # research is complete, proposal is NOT — script's prior stage is proposal.
+    project_dir = _research_complete_project(tmp_path)
+
+    with pytest.raises(RuntimeError, match="Proposal stage must be completed"):
+        engine.run_stage("script", None, project_dir, pipeline=_explainer_pipeline())
+
+
+def test_run_stage_produces_compat_alias(tmp_path: Path) -> None:
+    """run_stage attaches the stage-specific path alias to a pending result."""
+
+    engine = Engine()
+    project_dir = _proposal_complete_project(tmp_path)
+
+    result = engine.run_stage("script", None, project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "script_pending"
+    assert result["script_path"] == result["output_path"]
+
+
+def test_run_stage_returns_already_complete_state(tmp_path: Path) -> None:
+    """run_stage returns the already-complete shape when the stage is done."""
+
+    engine = Engine()
+    project_dir = _script_complete_project(tmp_path)
+
+    result = engine.run_stage("script", None, project_dir, pipeline=_explainer_pipeline())
+
+    assert result["status"] == "script_already_complete"
+    assert result["next_stage"] == "scene_plan"
+
+
+def test_run_stage_output_matches_run_script(tmp_path: Path) -> None:
+    """The generic run_stage and the run_script wrapper yield identical state."""
+
+    engine = Engine()
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    dir_generic = _proposal_complete_project(root_a)
+    dir_wrapper = _proposal_complete_project(root_b)
+
+    result_generic = engine.run_stage(
+        "script", None, dir_generic, pipeline=_explainer_pipeline()
+    )
+    result_wrapper = engine.run_script(dir_wrapper, pipeline=_explainer_pipeline())
+
+    assert result_generic["status"] == result_wrapper["status"]
+    assert result_generic["output_path"] == result_wrapper["output_path"]
+    assert result_generic["script_path"] == result_wrapper["script_path"]
+
+
+def test_complete_stage_output_matches_complete_script(tmp_path: Path) -> None:
+    """The generic complete_stage and complete_script wrapper yield identical state."""
+
+    engine = Engine()
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    dir_generic = _proposal_complete_project(root_a)
+    dir_wrapper = _proposal_complete_project(root_b)
+
+    for project_dir in (dir_generic, dir_wrapper):
+        engine.run_script(project_dir, pipeline=_explainer_pipeline())
+        _copy_fixture("script.json", project_dir / "script" / "script.json")
+
+    result_generic = engine.complete_stage(
+        "script", dir_generic, pipeline=_explainer_pipeline()
+    )
+    result_wrapper = engine.complete_script(dir_wrapper, pipeline=_explainer_pipeline())
+
+    assert result_generic["status"] == result_wrapper["status"]
+    assert result_generic["next_stage"] == result_wrapper["next_stage"]
+
+
+def test_run_stage_raises_keyerror_for_unknown_stage(tmp_path: Path) -> None:
+    """An unknown stage name surfaces a clear KeyError from pipeline.stage."""
+
+    engine = Engine()
+    project_dir = _make_project(tmp_path)
+
+    with pytest.raises(KeyError, match="nonexistent"):
+        engine.run_stage("nonexistent", None, project_dir, pipeline=_explainer_pipeline())

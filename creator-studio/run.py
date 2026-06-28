@@ -94,135 +94,65 @@ def _complete_research() -> int:
     return 0
 
 
-def _run_proposal() -> int:
+# Post-research stages, ordered highest-priority first. The dispatch loop in
+# main() visits each in turn, checking --complete-<stage> before --run-<stage>,
+# so routing priority is publish > compose > edit > assets > scene_plan >
+# script > proposal (research/approve handled separately below).
+_PIPELINE_STAGES = [
+    "publish", "compose", "edit", "assets", "scene_plan", "script", "proposal",
+]
+
+_RUN_PRINTERS = {
+    "proposal": print_proposal_handoff,
+    "script": print_script_handoff,
+    "scene_plan": print_scene_plan_handoff,
+    "assets": print_assets_handoff,
+    "edit": print_edit_handoff,
+    "compose": print_compose_handoff,
+    "publish": print_publish_handoff,
+}
+
+_COMPLETE_PRINTERS = {
+    "proposal": print_proposal_complete,
+    "script": print_script_complete,
+    "scene_plan": print_scene_plan_complete,
+    "assets": print_assets_complete,
+    "edit": print_edit_complete,
+    "compose": print_compose_complete,
+    "publish": print_publish_complete,
+}
+
+
+def _dispatch_stage(stage: str, *, complete: bool) -> int:
+    """Resolve the project, drive the stage run/complete wrapper, then print.
+
+    The per-stage wrapper methods (run_<stage> / complete_<stage>) delegate to
+    the generic Engine.run_stage / Engine.complete_stage, so this exercises the
+    same generic path while keeping the dispatch keyed on stage name.
+    """
+
     project_dir, pipeline, logger = _resolve()
-    result = Engine().run_proposal(project_dir, pipeline=pipeline)
-    print_proposal_handoff(logger, result)
-    return 0
-
-
-def _complete_proposal() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_proposal(project_dir, pipeline=pipeline)
-    print_proposal_complete(logger, result)
-    return 0
-
-
-def _run_script() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().run_script(project_dir, pipeline=pipeline)
-    print_script_handoff(logger, result)
-    return 0
-
-
-def _complete_script() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_script(project_dir, pipeline=pipeline)
-    print_script_complete(logger, result)
-    return 0
-
-
-def _run_scene_plan() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().run_scene_plan(project_dir, pipeline=pipeline)
-    print_scene_plan_handoff(logger, result)
-    return 0
-
-
-def _complete_scene_plan() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_scene_plan(project_dir, pipeline=pipeline)
-    print_scene_plan_complete(logger, result)
-    return 0
-
-
-def _run_assets() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().run_assets(project_dir, pipeline=pipeline)
-    print_assets_handoff(logger, result)
-    return 0
-
-
-def _complete_assets() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_assets(project_dir, pipeline=pipeline)
-    print_assets_complete(logger, result)
-    return 0
-
-
-def _run_edit() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().run_edit(project_dir, pipeline=pipeline)
-    print_edit_handoff(logger, result)
-    return 0
-
-
-def _complete_edit() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_edit(project_dir, pipeline=pipeline)
-    print_edit_complete(logger, result)
-    return 0
-
-
-def _run_compose() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().run_compose(project_dir, pipeline=pipeline)
-    print_compose_handoff(logger, result)
-    return 0
-
-
-def _complete_compose() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_compose(project_dir, pipeline=pipeline)
-    print_compose_complete(logger, result)
-    return 0
-
-
-def _run_publish() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().run_publish(project_dir, pipeline=pipeline)
-    print_publish_handoff(logger, result)
-    return 0
-
-
-def _complete_publish() -> int:
-    project_dir, pipeline, logger = _resolve()
-    result = Engine().complete_publish(project_dir, pipeline=pipeline)
-    print_publish_complete(logger, result)
+    engine = Engine()
+    if complete:
+        result = getattr(engine, f"complete_{stage}")(project_dir, pipeline=pipeline)
+        _COMPLETE_PRINTERS[stage](logger, result)
+    else:
+        result = getattr(engine, f"run_{stage}")(project_dir, pipeline=pipeline)
+        _RUN_PRINTERS[stage](logger, result)
     return 0
 
 
 def main() -> int:
     args = parse_args()
 
-    if args.complete_publish:
-        return _complete_publish()
-    if args.run_publish:
-        return _run_publish()
-    if args.complete_compose:
-        return _complete_compose()
-    if args.run_compose:
-        return _run_compose()
-    if args.complete_edit:
-        return _complete_edit()
-    if args.run_edit:
-        return _run_edit()
-    if args.complete_assets:
-        return _complete_assets()
-    if args.run_assets:
-        return _run_assets()
-    if args.complete_scene_plan:
-        return _complete_scene_plan()
-    if args.run_scene_plan:
-        return _run_scene_plan()
-    if args.complete_script:
-        return _complete_script()
-    if args.run_script:
-        return _run_script()
-    if args.complete_proposal:
-        return _complete_proposal()
-    if args.run_proposal:
-        return _run_proposal()
+    # argparse maps --complete-scene-plan -> args.complete_scene_plan, so the
+    # underscore-form stage names line up directly with the attribute names.
+    for stage in _PIPELINE_STAGES:
+        if getattr(args, f"complete_{stage}"):
+            return _dispatch_stage(stage, complete=True)
+        if getattr(args, f"run_{stage}"):
+            return _dispatch_stage(stage, complete=False)
+
     if args.complete_research:
         return _complete_research()
 
