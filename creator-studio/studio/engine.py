@@ -31,6 +31,21 @@ def schema_path_for(artifact: str) -> str:
     return f"schemas/artifacts/{artifact}.schema.json"
 
 
+# Backward-compatibility aliases: each stage's pending result carries a
+# stage-specific path key (e.g. "script_path") in addition to "output_path".
+# console.py handoff printers and existing tests depend on these keys.
+_COMPAT_ALIAS: dict[str, str] = {
+    "research": "research_brief_path",
+    "proposal": "proposal_packet_path",
+    "script": "script_path",
+    "scene_plan": "scene_plan_path",
+    "assets": "asset_manifest_path",
+    "edit": "edit_decisions_path",
+    "compose": "render_report_path",
+    "publish": "publish_log_path",
+}
+
+
 @dataclass(frozen=True)
 class PreflightResult:
     """Structured preflight result that the CLI or a future UI can reuse."""
@@ -220,29 +235,81 @@ class Engine:
 
         return self._complete_stage(project_dir, stage_name="research", pipeline=pipeline)
 
+    def run_stage(
+        self,
+        stage_name: str,
+        plan: PreflightResult | None,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
+    ) -> dict[str, Any]:
+        """Generic stage handoff. Enforce prerequisites, then prepare the stage.
+
+        Prerequisite ordering is derived from ``pipeline.stage_order`` — the
+        stage immediately before ``stage_name`` must be completed first. Unknown
+        stage names raise ``KeyError`` via ``pipeline.stage``. The stage-specific
+        compatibility path alias (see ``_COMPAT_ALIAS``) is attached to a pending
+        result so console printers and existing tests keep working.
+        """
+
+        # Validate the stage exists (raises KeyError for unknown names) and
+        # resolve the immediately-preceding stage from the manifest order.
+        stage = pipeline.stage(stage_name)
+        order = pipeline.stage_order
+        idx = order.index(stage_name)
+        if idx > 0:
+            prior_name = order[idx - 1]
+            if not self._stage_completed(project_dir, prior_name):
+                prior = pipeline.stage(prior_name)
+                raise RuntimeError(
+                    f"{prior.label} stage must be completed before starting "
+                    f"{stage.label}. Run --complete-{prior_name.replace('_', '-')} first."
+                )
+
+        result = self._prepare_stage(
+            plan,
+            project_dir,
+            stage_name=stage_name,
+            pipeline=pipeline,
+            topic=topic,
+            persona=persona,
+            platform=platform,
+        )
+        # Attach the backward-compatible path alias when the stage is pending.
+        alias = _COMPAT_ALIAS.get(stage_name)
+        if alias and result.get("status") == f"{stage_name}_pending":
+            result[alias] = result["output_path"]
+        return result
+
+    def complete_stage(
+        self,
+        stage_name: str,
+        project_dir: Path,
+        *,
+        pipeline: PipelineDefinition,
+    ) -> dict[str, Any]:
+        """Generic stage completion. Validate and finalize any manifest stage."""
+
+        return self._complete_stage(project_dir, stage_name=stage_name, pipeline=pipeline)
+
     def run_proposal(
         self,
         project_dir: Path,
         *,
         pipeline: PipelineDefinition,
+        topic: str = "",
+        persona: str = "",
+        platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Proposal stage as an agent handoff (Research complete -> Proposal -> STOP).
+        """Coordinate the Proposal stage handoff. Delegates to run_stage."""
 
-        Thin wrapper around _prepare_stage for the "proposal" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Research must be complete before handoff.
-        """
-
-        if not self._stage_completed(project_dir, "research"):
-            raise RuntimeError(
-                "Research stage must be completed before starting Proposal. "
-                "Run --complete-research first."
-            )
-        result = self._prepare_stage(None, project_dir, stage_name="proposal", pipeline=pipeline)
-        # Backward-compat alias expected by console.print_proposal_handoff.
-        if result.get("status") == "proposal_pending":
-            result["proposal_packet_path"] = result["output_path"]
-        return result
+        return self.run_stage(
+            "proposal", None, project_dir, pipeline=pipeline,
+            topic=topic, persona=persona, platform=platform,
+        )
 
     def complete_proposal(
         self,
@@ -250,13 +317,9 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced proposal packet and finalize the stage.
+        """Validate the proposal packet and finalize. Delegates to complete_stage."""
 
-        Thin wrapper around _complete_stage for the "proposal" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
-        """
-
-        return self._complete_stage(project_dir, stage_name="proposal", pipeline=pipeline)
+        return self.complete_stage("proposal", project_dir, pipeline=pipeline)
 
     def run_script(
         self,
@@ -267,26 +330,12 @@ class Engine:
         persona: str = "",
         platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Script stage as an agent handoff (Proposal complete -> Script -> STOP).
+        """Coordinate the Script stage handoff. Delegates to run_stage."""
 
-        Thin wrapper around _prepare_stage for the "script" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Proposal must be complete before handoff.
-        """
-
-        if not self._stage_completed(project_dir, "proposal"):
-            raise RuntimeError(
-                "Proposal stage must be completed before starting Script. "
-                "Run --complete-proposal first."
-            )
-        result = self._prepare_stage(
-            None, project_dir, stage_name="script", pipeline=pipeline,
+        return self.run_stage(
+            "script", None, project_dir, pipeline=pipeline,
             topic=topic, persona=persona, platform=platform,
         )
-        # Backward-compat alias expected by console.print_script_handoff.
-        if result.get("status") == "script_pending":
-            result["script_path"] = result["output_path"]
-        return result
 
     def complete_script(
         self,
@@ -294,13 +343,9 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced script and finalize the stage.
+        """Validate the script and finalize. Delegates to complete_stage."""
 
-        Thin wrapper around _complete_stage for the "script" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
-        """
-
-        return self._complete_stage(project_dir, stage_name="script", pipeline=pipeline)
+        return self.complete_stage("script", project_dir, pipeline=pipeline)
 
     def run_scene_plan(
         self,
@@ -311,26 +356,12 @@ class Engine:
         persona: str = "",
         platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Scene Plan stage as an agent handoff (Script complete -> Scene Plan -> STOP).
+        """Coordinate the Scene Plan stage handoff. Delegates to run_stage."""
 
-        Thin wrapper around _prepare_stage for the "scene_plan" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Script must be complete before handoff.
-        """
-
-        if not self._stage_completed(project_dir, "script"):
-            raise RuntimeError(
-                "Script stage must be completed before starting Scene Plan. "
-                "Run --complete-script first."
-            )
-        result = self._prepare_stage(
-            None, project_dir, stage_name="scene_plan", pipeline=pipeline,
+        return self.run_stage(
+            "scene_plan", None, project_dir, pipeline=pipeline,
             topic=topic, persona=persona, platform=platform,
         )
-        # Backward-compat alias expected by console.print_scene_plan_handoff.
-        if result.get("status") == "scene_plan_pending":
-            result["scene_plan_path"] = result["output_path"]
-        return result
 
     def complete_scene_plan(
         self,
@@ -338,13 +369,9 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced scene plan and finalize the stage.
+        """Validate the scene plan and finalize. Delegates to complete_stage."""
 
-        Thin wrapper around _complete_stage for the "scene_plan" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
-        """
-
-        return self._complete_stage(project_dir, stage_name="scene_plan", pipeline=pipeline)
+        return self.complete_stage("scene_plan", project_dir, pipeline=pipeline)
 
     def run_assets(
         self,
@@ -355,26 +382,12 @@ class Engine:
         persona: str = "",
         platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Assets stage as an agent handoff (Scene Plan complete -> Assets -> STOP).
+        """Coordinate the Assets stage handoff. Delegates to run_stage."""
 
-        Thin wrapper around _prepare_stage for the "assets" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Scene Plan must be complete before handoff.
-        """
-
-        if not self._stage_completed(project_dir, "scene_plan"):
-            raise RuntimeError(
-                "Scene Plan stage must be completed before starting Assets. "
-                "Run --complete-scene-plan first."
-            )
-        result = self._prepare_stage(
-            None, project_dir, stage_name="assets", pipeline=pipeline,
+        return self.run_stage(
+            "assets", None, project_dir, pipeline=pipeline,
             topic=topic, persona=persona, platform=platform,
         )
-        # Backward-compat alias expected by console.print_assets_handoff.
-        if result.get("status") == "assets_pending":
-            result["asset_manifest_path"] = result["output_path"]
-        return result
 
     def complete_assets(
         self,
@@ -382,13 +395,9 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced asset manifest and finalize the stage.
+        """Validate the asset manifest and finalize. Delegates to complete_stage."""
 
-        Thin wrapper around _complete_stage for the "assets" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
-        """
-
-        return self._complete_stage(project_dir, stage_name="assets", pipeline=pipeline)
+        return self.complete_stage("assets", project_dir, pipeline=pipeline)
 
     def run_edit(
         self,
@@ -399,26 +408,12 @@ class Engine:
         persona: str = "",
         platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Edit stage as an agent handoff (Assets complete -> Edit -> STOP).
+        """Coordinate the Edit stage handoff. Delegates to run_stage."""
 
-        Thin wrapper around _prepare_stage for the "edit" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Assets must be complete before handoff.
-        """
-
-        if not self._stage_completed(project_dir, "assets"):
-            raise RuntimeError(
-                "Assets stage must be completed before starting Edit. "
-                "Run --complete-assets first."
-            )
-        result = self._prepare_stage(
-            None, project_dir, stage_name="edit", pipeline=pipeline,
+        return self.run_stage(
+            "edit", None, project_dir, pipeline=pipeline,
             topic=topic, persona=persona, platform=platform,
         )
-        # Backward-compat alias expected by console.print_edit_handoff.
-        if result.get("status") == "edit_pending":
-            result["edit_decisions_path"] = result["output_path"]
-        return result
 
     def complete_edit(
         self,
@@ -426,13 +421,9 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced edit decisions and finalize the stage.
+        """Validate the edit decisions and finalize. Delegates to complete_stage."""
 
-        Thin wrapper around _complete_stage for the "edit" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
-        """
-
-        return self._complete_stage(project_dir, stage_name="edit", pipeline=pipeline)
+        return self.complete_stage("edit", project_dir, pipeline=pipeline)
 
     def run_compose(
         self,
@@ -443,26 +434,12 @@ class Engine:
         persona: str = "",
         platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Compose stage as an agent handoff (Edit complete -> Compose -> STOP).
+        """Coordinate the Compose stage handoff. Delegates to run_stage."""
 
-        Thin wrapper around _prepare_stage for the "compose" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Edit must be complete before handoff.
-        """
-
-        if not self._stage_completed(project_dir, "edit"):
-            raise RuntimeError(
-                "Edit stage must be completed before starting Compose. "
-                "Run --complete-edit first."
-            )
-        result = self._prepare_stage(
-            None, project_dir, stage_name="compose", pipeline=pipeline,
+        return self.run_stage(
+            "compose", None, project_dir, pipeline=pipeline,
             topic=topic, persona=persona, platform=platform,
         )
-        # Backward-compat alias expected by console.print_compose_handoff.
-        if result.get("status") == "compose_pending":
-            result["render_report_path"] = result["output_path"]
-        return result
 
     def complete_compose(
         self,
@@ -470,13 +447,9 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced render report and finalize the stage.
+        """Validate the render report and finalize. Delegates to complete_stage."""
 
-        Thin wrapper around _complete_stage for the "compose" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
-        """
-
-        return self._complete_stage(project_dir, stage_name="compose", pipeline=pipeline)
+        return self.complete_stage("compose", project_dir, pipeline=pipeline)
 
     def run_publish(
         self,
@@ -487,27 +460,15 @@ class Engine:
         persona: str = "",
         platform: str = "",
     ) -> dict[str, Any]:
-        """Coordinate the Publish stage as an agent handoff (Compose complete -> Publish -> STOP).
+        """Coordinate the Publish stage handoff. Delegates to run_stage.
 
-        Thin wrapper around _prepare_stage for the "publish" stage. All paths
-        and schema references are derived from the pipeline manifest — no
-        hardcoded constants. Compose must be complete before handoff.
         Publish is the final stage; next_stage will be None after completion.
         """
 
-        if not self._stage_completed(project_dir, "compose"):
-            raise RuntimeError(
-                "Compose stage must be completed before starting Publish. "
-                "Run --complete-compose first."
-            )
-        result = self._prepare_stage(
-            None, project_dir, stage_name="publish", pipeline=pipeline,
+        return self.run_stage(
+            "publish", None, project_dir, pipeline=pipeline,
             topic=topic, persona=persona, platform=platform,
         )
-        # Backward-compat alias expected by console.print_publish_handoff.
-        if result.get("status") == "publish_pending":
-            result["publish_log_path"] = result["output_path"]
-        return result
 
     def complete_publish(
         self,
@@ -515,14 +476,12 @@ class Engine:
         *,
         pipeline: PipelineDefinition,
     ) -> dict[str, Any]:
-        """Validate the agent-produced publish log and finalize the pipeline.
+        """Validate the publish log and finalize the pipeline. Delegates to complete_stage.
 
-        Thin wrapper around _complete_stage for the "publish" stage. Validation
-        schema, artifact name, and next-stage resolution are all manifest-driven.
         Publish is the final stage; next_stage in the result will be None.
         """
 
-        return self._complete_stage(project_dir, stage_name="publish", pipeline=pipeline)
+        return self.complete_stage("publish", project_dir, pipeline=pipeline)
 
     # ------------------------------------------------------------------
     # Generic stage lifecycle helpers (manifest-driven)
