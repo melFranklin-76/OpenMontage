@@ -1,0 +1,8 @@
+# Test / generated media — never commit source files dropped here for testing
+inbox/
+
+# Generated project workspaces
+projects/
+
+# Log output
+logs/

@@ -12,9 +12,16 @@ from .logger import StudioLogger
 
 
 def _next_label(result: dict[str, Any]) -> str:
-    """Title-case the manifest-driven next stage (defaults to Proposal)."""
+    """Format the manifest-driven next stage for human display.
 
-    return (result.get("next_stage") or "proposal").title()
+    Replaces underscores with spaces and title-cases the result.
+    Falls back to 'Done' when no next stage is set.
+    """
+
+    raw = result.get("next_stage")
+    if not raw:
+        return "Done"
+    return raw.replace("_", " ").title()
 
 
 def render_execution_plan(
@@ -61,6 +68,10 @@ def render_execution_plan(
     for warning in plan.warnings:
         logger.info(f"Warning: {warning}")
 
+
+# ---------------------------------------------------------------------------
+# Research stage console helpers
+# ---------------------------------------------------------------------------
 
 def print_research_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
     """Print the resume block when research is already done (shared by both commands)."""
@@ -113,3 +124,381 @@ def print_research_complete(logger: StudioLogger, result: dict[str, Any]) -> Non
     logger.info(f"Elapsed: {result['elapsed_seconds']}s")
     logger.info(f"Next stage: {_next_label(result)}")
     logger.info("Stopping after Research by design.")
+
+
+# ---------------------------------------------------------------------------
+# Proposal stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_proposal_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when proposal is already done."""
+
+    logger.info("Proposal already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_proposal_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-proposal handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "proposal_already_complete":
+        print_proposal_already_complete(logger, result)
+        return
+    if status != "proposal_pending":
+        logger.info("Proposal cannot start: research stage is not complete.")
+        return
+    for line in (
+        "Proposal stage prepared.",
+        "",
+        "Workspace:",
+        "  proposal/",
+        "",
+        "Stage request:",
+        "  proposal/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['proposal_packet_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Proposal handoff by design.",
+        "Run again with --complete-proposal after the proposal packet exists.",
+    ):
+        logger.info(line)
+
+
+def print_proposal_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-proposal success block (or resume variant)."""
+
+    if result.get("status") == "proposal_already_complete":
+        print_proposal_already_complete(logger, result)
+        return
+    logger.info("Proposal stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Proposal by design.")
+
+
+# ---------------------------------------------------------------------------
+# Script stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_script_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when script is already done."""
+
+    logger.info("Script already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_script_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-script handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "script_already_complete":
+        print_script_already_complete(logger, result)
+        return
+    if status != "script_pending":
+        logger.info("Script cannot start: proposal stage is not complete.")
+        return
+    for line in (
+        "Script stage prepared.",
+        "",
+        "Workspace:",
+        "  script/",
+        "",
+        "Stage request:",
+        "  script/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['script_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Script handoff by design.",
+        "Run again with --complete-script after the script artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_script_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-script success block (or resume variant)."""
+
+    if result.get("status") == "script_already_complete":
+        print_script_already_complete(logger, result)
+        return
+    logger.info("Script stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Script by design.")
+
+
+# ---------------------------------------------------------------------------
+# Scene Plan stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_scene_plan_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when scene plan is already done."""
+
+    logger.info("Scene Plan already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_scene_plan_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-scene-plan handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "scene_plan_already_complete":
+        print_scene_plan_already_complete(logger, result)
+        return
+    if status != "scene_plan_pending":
+        logger.info("Scene Plan cannot start: script stage is not complete.")
+        return
+    for line in (
+        "Scene Plan stage prepared.",
+        "",
+        "Workspace:",
+        "  scene_plan/",
+        "",
+        "Stage request:",
+        "  scene_plan/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['scene_plan_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Scene Plan handoff by design.",
+        "Run again with --complete-scene-plan after the scene plan artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_scene_plan_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-scene-plan success block (or resume variant)."""
+
+    if result.get("status") == "scene_plan_already_complete":
+        print_scene_plan_already_complete(logger, result)
+        return
+    logger.info("Scene Plan stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Scene Plan by design.")
+
+
+# ---------------------------------------------------------------------------
+# Assets stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_assets_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when assets is already done."""
+
+    logger.info("Assets already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_assets_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-assets handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "assets_already_complete":
+        print_assets_already_complete(logger, result)
+        return
+    if status != "assets_pending":
+        logger.info("Assets cannot start: scene plan stage is not complete.")
+        return
+    for line in (
+        "Assets stage prepared.",
+        "",
+        "Workspace:",
+        "  assets/",
+        "",
+        "Stage request:",
+        "  assets/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['asset_manifest_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Assets handoff by design.",
+        "Run again with --complete-assets after the asset manifest exists.",
+    ):
+        logger.info(line)
+
+
+def print_assets_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-assets success block (or resume variant)."""
+
+    if result.get("status") == "assets_already_complete":
+        print_assets_already_complete(logger, result)
+        return
+    logger.info("Assets stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Assets by design.")
+
+
+# ---------------------------------------------------------------------------
+# Edit stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_edit_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when edit is already done."""
+
+    logger.info("Edit already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_edit_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-edit handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "edit_already_complete":
+        print_edit_already_complete(logger, result)
+        return
+    if status != "edit_pending":
+        logger.info("Edit cannot start: assets stage is not complete.")
+        return
+    for line in (
+        "Edit stage prepared.",
+        "",
+        "Workspace:",
+        "  edit/",
+        "",
+        "Stage request:",
+        "  edit/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['edit_decisions_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Edit handoff by design.",
+        "Run again with --complete-edit after the edit artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_edit_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-edit success block (or resume variant)."""
+
+    if result.get("status") == "edit_already_complete":
+        print_edit_already_complete(logger, result)
+        return
+    logger.info("Edit stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Edit by design.")
+
+
+# ---------------------------------------------------------------------------
+# Compose stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_compose_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when compose is already done."""
+
+    logger.info("Compose already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_compose_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-compose handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "compose_already_complete":
+        print_compose_already_complete(logger, result)
+        return
+    if status != "compose_pending":
+        logger.info("Compose cannot start: edit stage is not complete.")
+        return
+    for line in (
+        "Compose stage prepared.",
+        "",
+        "Workspace:",
+        "  compose/",
+        "",
+        "Stage request:",
+        "  compose/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['render_report_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Compose handoff by design.",
+        "Run again with --complete-compose after the compose artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_compose_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-compose success block (or resume variant)."""
+
+    if result.get("status") == "compose_already_complete":
+        print_compose_already_complete(logger, result)
+        return
+    logger.info("Compose stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Compose by design.")
+
+
+# ---------------------------------------------------------------------------
+# Publish stage console helpers
+# ---------------------------------------------------------------------------
+
+def print_publish_already_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the resume block when publish is already done."""
+
+    logger.info("Publish already completed.")
+    logger.info(f"Next stage: {_next_label(result)}")
+
+
+def print_publish_handoff(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --run-publish handoff block (or already-completed variant)."""
+
+    status = result.get("status")
+    if status == "publish_already_complete":
+        print_publish_already_complete(logger, result)
+        return
+    if status != "publish_pending":
+        logger.info("Publish cannot start: compose stage is not complete.")
+        return
+    for line in (
+        "Publish stage prepared.",
+        "",
+        "Workspace:",
+        "  publish/",
+        "",
+        "Stage request:",
+        "  publish/stage_request.json",
+        "",
+        "Agent handoff:",
+        f"  Read {result['director_skill_path']}",
+        f"  Produce {result['publish_log_path']}",
+        f"  Validate against {result['schema_path']}",
+        "",
+        "Stopping after Publish handoff by design.",
+        "Run again with --complete-publish after the publish artifact exists.",
+    ):
+        logger.info(line)
+
+
+def print_publish_complete(logger: StudioLogger, result: dict[str, Any]) -> None:
+    """Print the --complete-publish success block (or resume variant)."""
+
+    if result.get("status") == "publish_already_complete":
+        print_publish_already_complete(logger, result)
+        return
+    logger.info("Publish stage complete.")
+    logger.info(f"Checkpoint saved: {result['checkpoint_path']}")
+    logger.info(f"Elapsed: {result['elapsed_seconds']}s")
+    logger.info(f"Next stage: {_next_label(result)}")
+    logger.info("Stopping after Publish by design.")

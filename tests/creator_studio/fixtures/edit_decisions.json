@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "render_runtime": "remotion",
+  "renderer_family": "explainer-data",
+  "cuts": [
+    {
+      "id": "cut_01",
+      "source": "img_01",
+      "in_seconds": 0,
+      "out_seconds": 4,
+      "layer": "primary",
+      "transition_in": "fade",
+      "transition_duration": 0.5,
+      "reason": "Opening title card — establishes topic before visuals"
+    },
+    {
+      "id": "cut_02",
+      "source": "assets/images/neural_network_visualization.png",
+      "in_seconds": 4,
+      "out_seconds": 20,
+      "layer": "primary",
+      "transform": {
+        "scale": 1.05,
+        "position": "center",
+        "animation": "ken-burns-slow-zoom"
+      },
+      "transition_in": "dissolve",
+      "transition_out": "dissolve",
+      "transition_duration": 0.75,
+      "reason": "Hero visual for semantic search concept — slow zoom keeps energy"
+    },
+    {
+      "id": "cut_03",
+      "source": "img_01",
+      "in_seconds": 50,
+      "out_seconds": 60,
+      "layer": "primary",
+      "transition_in": "fade",
+      "transition_duration": 0.5,
+      "reason": "Closing CTA card with brand presence"
+    }
+  ],
+  "overlays": [
+    {
+      "asset_id": "img_01",
+      "start_seconds": 0,
+      "end_seconds": 4,
+      "position": { "x": 0, "y": 0, "width": 1920, "height": 1080 },
+      "opacity": 1.0
+    }
+  ],
+  "audio": {
+    "narration": {
+      "segments": [
+        { "asset_id": "narr_01", "start_seconds": 0, "end_seconds": 8.2 }
+      ]
+    },
+    "music": {
+      "asset_id": "music_01",
+      "volume": 0.15,
+      "fade_in_seconds": 1.0,
+      "fade_out_seconds": 2.0,
+      "ducking": true
+    }
+  },
+  "subtitles": {
+    "enabled": true,
+    "style": "sentence",
+    "font": "Inter",
+    "font_size": 36,
+    "color": "#FFFFFF",
+    "outline_color": "#000000",
+    "background": "#00000066",
+    "position": "bottom-center",
+    "max_words_per_line": 8
+  },
+  "slideshow_risk_score": {
+    "average": 0.32,
+    "verdict": "acceptable"
+  },
+  "metadata": {
+    "topic": "vector_databases",
+    "platform": "instagram",
+    "total_cuts": 3
+  }
+}

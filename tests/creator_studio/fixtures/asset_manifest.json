@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "assets": [
+    {
+      "id": "img_01",
+      "type": "image",
+      "path": "assets/images/neural_network_visualization.png",
+      "source_tool": "flux_image",
+      "scene_id": "scene_02",
+      "prompt": "Abstract neural network with glowing nodes and connections, dark background, flat motion graphics style",
+      "model": "flux.1-pro",
+      "cost_usd": 0.04,
+      "resolution": "1920x1080",
+      "format": "png",
+      "quality_score": 0.92,
+      "subtype": "generated",
+      "generation_summary": "Generated via FLUX.1 Pro with flat-motion-graphics playbook settings"
+    },
+    {
+      "id": "narr_01",
+      "type": "narration",
+      "path": "assets/audio/narration_intro.mp3",
+      "source_tool": "elevenlabs_tts",
+      "scene_id": "scene_01",
+      "model": "eleven_multilingual_v2",
+      "cost_usd": 0.01,
+      "duration_seconds": 8.2,
+      "format": "mp3",
+      "quality_score": 0.95,
+      "subtype": "generated",
+      "generation_summary": "TTS narration for intro section at 1.0x speed, Mel voice"
+    },
+    {
+      "id": "music_01",
+      "type": "music",
+      "path": "assets/audio/background_music.mp3",
+      "source_tool": "music_gen",
+      "scene_id": "scene_01",
+      "duration_seconds": 62.0,
+      "format": "mp3",
+      "quality_score": 0.88,
+      "subtype": "generated",
+      "generation_summary": "Upbeat electronic background track, 60 BPM, low-key mix"
+    }
+  ],
+  "total_cost_usd": 0.05,
+  "metadata": {
+    "topic": "vector_databases",
+    "platform": "instagram",
+    "total_assets": 3
+  }
+}

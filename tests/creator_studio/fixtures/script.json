@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "title": "Why Vector Databases Are Changing AI",
+  "total_duration_seconds": 60,
+  "sections": [
+    {
+      "id": "intro",
+      "label": "Introduction",
+      "text": "Imagine searching not by keywords, but by meaning itself.",
+      "start_seconds": 0,
+      "end_seconds": 8,
+      "enhancement_cues": [
+        {
+          "type": "overlay",
+          "description": "Abstract neural network visualization",
+          "timestamp_seconds": 2
+        }
+      ]
+    },
+    {
+      "id": "core",
+      "label": "Core Concept",
+      "text": "Vector databases store information as high-dimensional embeddings, enabling semantic search at scale.",
+      "start_seconds": 8,
+      "end_seconds": 35
+    },
+    {
+      "id": "outro",
+      "label": "Call to Action",
+      "text": "Start building with vector databases today and unlock the full potential of your AI applications.",
+      "start_seconds": 35,
+      "end_seconds": 60
+    }
+  ],
+  "metadata": {
+    "topic": "vector_databases",
+    "platform": "instagram"
+  }
+}

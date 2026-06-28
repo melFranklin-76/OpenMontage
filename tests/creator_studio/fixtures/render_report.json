@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "outputs": [
+    {
+      "path": "compose/output/vector_databases_instagram.mp4",
+      "format": "mp4",
+      "codec": "h264",
+      "audio_codec": "aac",
+      "resolution": "1080x1920",
+      "fps": 30,
+      "duration_seconds": 60.0,
+      "file_size_bytes": 18432000,
+      "platform_target": "instagram"
+    },
+    {
+      "path": "compose/output/vector_databases_horizontal.mp4",
+      "format": "mp4",
+      "codec": "h264",
+      "audio_codec": "aac",
+      "resolution": "1920x1080",
+      "fps": 30,
+      "duration_seconds": 60.0,
+      "file_size_bytes": 22020096,
+      "platform_target": "youtube"
+    }
+  ],
+  "render_time_seconds": 142.3,
+  "render_grammar": "explainer-data",
+  "warnings": [],
+  "verification_notes": [
+    "Audio levels normalized to -14 LUFS",
+    "Subtitles validated against SRT source"
+  ],
+  "slideshow_risk_score": {
+    "average": 0.29,
+    "verdict": "acceptable"
+  },
+  "decision_log_ref": "edit/decisions.log",
+  "metadata": {
+    "topic": "vector_databases",
+    "platform": "instagram",
+    "render_runtime": "remotion"
+  }
+}
