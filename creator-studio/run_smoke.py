@@ -30,9 +30,14 @@ import sys
 from pathlib import Path
 
 # config lives alongside this script; tests/ fixtures live at the repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+STUDIO_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(STUDIO_SCRIPT_DIR))
 
 from config import INBOX_DIR, PROJECTS_DIR, REPO_ROOT, STUDIO_ROOT
+
+# Importing the studio package loads engine.py, which imports root-level packages like lib/.
+sys.path.insert(0, str(REPO_ROOT))
+from studio.research_generator import generate_research_brief
 
 RUN_PY = STUDIO_ROOT / "run.py"
 FIXTURES_DIR = REPO_ROOT / "tests" / "creator_studio" / "fixtures"
@@ -177,8 +182,9 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
     project_dir = _resolve_latest_project()
     print(f"Project dir: {project_dir}")
 
-    print("\n[research] seed brief + complete")
-    _seed(project_dir, RESEARCH[0], RESEARCH[1])
+    print("\n[research] generate brief + complete")
+    research_brief = generate_research_brief(project_dir)
+    print(f"  generated: {research_brief.relative_to(project_dir)}")
     _run_cli("--complete-research", "--pipeline", pipeline)
 
     for stage, fixture in POST_RESEARCH_STAGES:
