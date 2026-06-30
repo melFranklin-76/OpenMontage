@@ -39,6 +39,7 @@ from config import INBOX_DIR, PROJECTS_DIR, REPO_ROOT, STUDIO_ROOT
 sys.path.insert(0, str(REPO_ROOT))
 from studio.proposal_generator import generate_proposal_packet
 from studio.research_generator import generate_research_brief
+from studio.scene_plan_generator import generate_scene_plan
 from studio.script_generator import generate_script
 
 RUN_PY = STUDIO_ROOT / "run.py"
@@ -200,6 +201,9 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
         elif stage == "script":
             script = generate_script(project_dir)
             print(f"  generated: {script.relative_to(project_dir)}")
+        elif stage == "scene_plan":
+            scene_plan = generate_scene_plan(project_dir)
+            print(f"  generated: {scene_plan.relative_to(project_dir)}")
         else:
             _seed(project_dir, stage, fixture)
 
