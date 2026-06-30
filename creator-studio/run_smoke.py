@@ -37,7 +37,9 @@ from config import INBOX_DIR, PROJECTS_DIR, REPO_ROOT, STUDIO_ROOT
 
 # Importing the studio package loads engine.py, which imports root-level packages like lib/.
 sys.path.insert(0, str(REPO_ROOT))
+from studio.proposal_generator import generate_proposal_packet
 from studio.research_generator import generate_research_brief
+from studio.script_generator import generate_script
 
 RUN_PY = STUDIO_ROOT / "run.py"
 FIXTURES_DIR = REPO_ROOT / "tests" / "creator_studio" / "fixtures"
@@ -189,9 +191,18 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
 
     for stage, fixture in POST_RESEARCH_STAGES:
         flag = _flag(stage)
-        print(f"\n[{stage}] run handoff + seed + complete")
+        print(f"\n[{stage}] run handoff + generate/seed + complete")
         _run_cli(f"--run-{flag}", "--pipeline", pipeline)
-        _seed(project_dir, stage, fixture)
+
+        if stage == "proposal":
+            proposal_packet = generate_proposal_packet(project_dir)
+            print(f"  generated: {proposal_packet.relative_to(project_dir)}")
+        elif stage == "script":
+            script = generate_script(project_dir)
+            print(f"  generated: {script.relative_to(project_dir)}")
+        else:
+            _seed(project_dir, stage, fixture)
+
         _run_cli(f"--complete-{flag}", "--pipeline", pipeline)
 
     print("\n[verify] final run.json state")

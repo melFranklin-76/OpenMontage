@@ -94,7 +94,7 @@ def build_proposal_packet(
                 "id": "c3",
                 "title": "Vectors Are Meaning Coordinates",
                 "hook": "Vector databases turn meaning into coordinates so related ideas can find each other.",
-                "narrative_structure": "narrative",
+                "narrative_structure": "story",
                 "visual_approach": "Animated map of meaning clusters with a question traveling to nearby context.",
                 "target_audience": "Non-experts who have heard about AI search but do not understand embeddings.",
                 "target_platform": platform,
@@ -183,7 +183,7 @@ def build_proposal_packet(
             "renderer_family": "explainer-teacher",
             "render_runtime": "remotion",
             "music_source": {
-                "source_type": "library",
+                "source_type": "user_library",
                 "provider": "local",
                 "mood_direction": "focused, low-key background",
                 "estimated_cost_usd": 0.0,
