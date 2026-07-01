@@ -62,14 +62,14 @@ def _visual_type(asset_type: str, scene_type: str) -> str:
 def _visual_format(asset_type: str) -> str:
     if asset_type == "video":
         return "mp4"
-    return "svg"
+    return "json"
 
 
 def _visual_path(asset_type: str, scene_id: str, description: str) -> str:
     stem = _slugify(description[:48], fallback=scene_id)
     if asset_type == "video":
         return f"assets/video/{scene_id}-{stem}.mp4"
-    return f"assets/visuals/{scene_id}-{stem}.svg"
+    return f"assets/visuals/{scene_id}-{stem}.json"
 
 
 def _scene_prompt(
@@ -219,20 +219,7 @@ def build_asset_manifest(
         run_manifest=run_manifest,
     )
     narration_assets = _build_narration_assets(scene_plan=scene_plan, script=script)
-    subtitle_asset = {
-        "id": "subtitles_01",
-        "type": "subtitle",
-        "path": "assets/subtitles/subtitles.srt",
-        "source_tool": "local_asset_manifest_generator",
-        "scene_id": str(((scene_plan.get("scenes") or [{}])[0]).get("id") or "scene_01"),
-        "model": "local-deterministic-planner",
-        "cost_usd": 0.0,
-        "format": "srt",
-        "quality_score": 1.0,
-        "subtype": "planned_local",
-        "generation_summary": "Subtitle file planned from script sections; no transcription or speech generation was performed.",
-    }
-    assets = [*visual_assets, *narration_assets, subtitle_asset]
+    assets = [*visual_assets, *narration_assets]
 
     production_plan = proposal_packet.get("production_plan") or {}
     if production_plan.get("music_source") is not None:
