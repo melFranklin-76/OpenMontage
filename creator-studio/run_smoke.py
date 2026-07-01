@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Creator Studio fixture-only live smoke - Milestone 3N (Developer UX).
+"""Creator Studio local-generator live smoke - Milestone 3N (Developer UX).
 
 Turns the manual "seed fixture, run CLI, repeat" verification into a single
 repeatable developer check. It drives the *real* CLI (run.py) end-to-end:
 
     Research -> Proposal -> Script -> Scene Plan -> Assets -> Edit -> Compose -> Publish
 
-For each stage it copies the canonical fixture artifact into the stage
-workspace, then invokes the matching `--complete-<stage>` (and `--run-<stage>`
+For each stage it generates the local artifacts that exist for current
+milestones, then invokes the matching `--complete-<stage>` (and `--run-<stage>`
 handoff) command, exactly as a developer would by hand.
 
-Local-only and fixture-only by design: it never renders, never publishes,
+Local-only by design: it never renders, never publishes,
 never calls a provider/social API, and adds no OAuth/scheduler/analytics. It
-only orchestrates the existing CLI and the committed test fixtures.
+only orchestrates the existing CLI, local artifact generators, and remaining committed test fixtures.
 
 Usage:
     python creator-studio/run_smoke.py --pipeline animated-explainer --name vector-databases
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -39,6 +40,8 @@ from config import INBOX_DIR, PROJECTS_DIR, REPO_ROOT, STUDIO_ROOT
 sys.path.insert(0, str(REPO_ROOT))
 from studio.proposal_generator import generate_proposal_packet
 from studio.research_generator import generate_research_brief
+from studio.asset_manifest_generator import generate_asset_manifest
+from studio.asset_materializer import materialize_assets
 from studio.scene_plan_generator import generate_scene_plan
 from studio.script_generator import generate_script
 
@@ -85,7 +88,8 @@ def _run_cli(*flags: str) -> None:
     """Invoke run.py as a subprocess so we exercise the real CLI dispatch."""
 
     cmd = [sys.executable, str(RUN_PY), *flags]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    env = {**os.environ, "CREATOR_STUDIO_LOCAL_SMOKE": "1"}
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     label = " ".join(flags)
     if proc.returncode != 0:
         # Surface the captured output only on failure to keep the happy path quiet.
@@ -173,7 +177,7 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
     """Drive the full fixture-only pipeline and verify the terminal state."""
 
     print("=" * 38)
-    print("CREATOR STUDIO FIXTURE SMOKE (local-only)")
+    print("CREATOR STUDIO LOCAL SMOKE (local-only)")
     print("=" * 38)
     print(f"Pipeline: {pipeline}")
     print(f"Name:     {name}")
@@ -204,6 +208,11 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
         elif stage == "scene_plan":
             scene_plan = generate_scene_plan(project_dir)
             print(f"  generated: {scene_plan.relative_to(project_dir)}")
+        elif stage == "assets":
+            asset_manifest = generate_asset_manifest(project_dir)
+            print(f"  generated: {asset_manifest.relative_to(project_dir)}")
+            materialized = materialize_assets(project_dir)
+            print(f"  materialized: {len(materialized)} preview assets")
         else:
             _seed(project_dir, stage, fixture)
 
