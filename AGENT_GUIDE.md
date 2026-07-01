@@ -3,7 +3,7 @@
 Start here. This is the complete operating guide and agent contract for OpenMontage.
 
 For architecture, key files, and conventions see [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).
-
+## Codex / Coding-Agent Change Control
 ## First Interaction — Onboarding
 
 When the user's first message is vague, exploratory, or asks what you can do ("make me a video", "what can you do?", "help me create something", "I want to make content"), read the onboarding skill **before** doing anything else:
