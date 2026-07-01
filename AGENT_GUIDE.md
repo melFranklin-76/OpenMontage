@@ -4,6 +4,89 @@ Start here. This is the complete operating guide and agent contract for OpenMont
 
 For architecture, key files, and conventions see [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).
 ## Codex / Coding-Agent Change Control
+
+This repository already contains a full OpenMontage production agent guide. For coding agents such as Codex, the following change-control rules are mandatory and override convenience.
+
+### North Star for Creator Studio Development
+
+Creator Studio should move from JSON-only planning toward tangible local production outputs:
+
+idea / inbox media
+→ research brief
+→ proposal packet
+→ script
+→ scene plan
+→ asset manifest
+→ real local preview files
+→ edit decisions
+→ local preview render
+→ render report
+→ reviewable publish package
+
+After Milestone 4E, avoid milestones that only create more placeholder JSON unless that JSON directly enables tangible local output.
+
+### Current Stable Baseline
+
+Treat these as merged and stable:
+
+- 4A: deterministic local research brief
+- 4B: deterministic local proposal packet
+- 4C: deterministic local script
+- 4D: deterministic local scene plan
+- 4E: deterministic local asset manifest
+
+Do not rewrite previous milestone generators unless explicitly requested.
+
+### Branch Discipline
+
+Before coding:
+
+- Fetch latest `main`.
+- Start from latest `main`.
+- Create one new branch per milestone.
+- Never reuse stale Codex branches.
+- Never create a second PR for the same milestone unless the old PR is closed.
+- If latest `main` cannot be fetched, stop and report. Do not open a PR from stale state.
+
+### Scope Discipline
+
+Before coding, state:
+
+- exact files allowed to change
+- exact files not allowed to change
+- why each allowed file must change
+
+Do not touch files outside the allowed list.
+
+Avoid changing these unless explicitly approved:
+
+- `creator-studio/studio/engine.py`
+- `creator-studio/studio/tools/tool_registry.py`
+- provider/preflight files
+- `schemas/**`
+- `pipeline_defs/**`
+- previous milestone generators
+
+### Required Workflow
+
+For every future Codex implementation task:
+
+1. Inspect current `main`.
+2. Summarize current-state findings.
+3. Produce a short implementation plan.
+4. List allowed files.
+5. Implement only approved scope.
+6. Run required tests.
+7. Summarize changed files, test results, limitations, merge risk, and rollback plan.
+8. Open one PR.
+
+### Test Policy
+
+Every Creator Studio PR must run:
+
+```bash
+python -m pytest tests/creator_studio/test_run_smoke.py -q
+python -m pytest tests/creator_studio -q
 ## First Interaction — Onboarding
 
 When the user's first message is vague, exploratory, or asks what you can do ("make me a video", "what can you do?", "help me create something", "I want to make content"), read the onboarding skill **before** doing anything else:
