@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -137,6 +138,11 @@ class Engine:
             missing_optional=missing_optional,
             runtime_warnings=summary.get("runtime_warnings", []),
         )
+        if os.environ.get("CREATOR_STUDIO_LOCAL_SMOKE") == "1" and status == "blocked":
+            status = "degraded"
+            warnings.append(
+                "Creator Studio local smoke mode: proceeding with deterministic local artifact generators despite unavailable provider tools."
+            )
 
         composition_runtimes = {
             key: bool(value)
