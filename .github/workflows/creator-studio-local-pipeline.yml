@@ -1,0 +1,47 @@
+name: Creator Studio Local Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        description: "Creator Studio pipeline"
+        required: true
+        default: "animated-explainer"
+        type: string
+      name:
+        description: "Project name"
+        required: true
+        default: "vector-databases"
+        type: string
+      topic:
+        description: "Project topic"
+        required: true
+        default: "How vector databases power retrieval augmented generation"
+        type: string
+
+jobs:
+  local-pipeline:
+    name: Run local generated pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest jsonschema pyyaml
+
+      - name: Run Creator Studio local pipeline
+        run: |
+          ./scripts/creator_studio_local_pipeline.sh \
+            "${{ inputs.pipeline }}" \
+            "${{ inputs.name }}" \
+            "${{ inputs.topic }}"
