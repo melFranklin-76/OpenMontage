@@ -1,0 +1,42 @@
+name: Creator Studio CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  creator-studio-tests:
+    name: Creator Studio tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest jsonschema pyyaml
+
+      - name: Run Creator Studio smoke tests
+        run: python -m pytest tests/creator_studio/test_run_smoke.py -q
+
+      - name: Run Creator Studio test suite
+        run: python -m pytest tests/creator_studio -q
+
+      - name: Compile Creator Studio Python files
+        run: python -m compileall -q creator-studio/studio creator-studio/run_smoke.py
+
+      - name: Check whitespace errors
+        run: git diff --check
