@@ -42,6 +42,7 @@ from studio.proposal_generator import generate_proposal_packet
 from studio.research_generator import generate_research_brief
 from studio.asset_manifest_generator import generate_asset_manifest
 from studio.asset_materializer import materialize_assets
+from studio.edit_decision_generator import generate_edit_decisions
 from studio.scene_plan_generator import generate_scene_plan
 from studio.script_generator import generate_script
 
@@ -213,6 +214,9 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
             print(f"  generated: {asset_manifest.relative_to(project_dir)}")
             materialized = materialize_assets(project_dir)
             print(f"  materialized: {len(materialized)} preview assets")
+        elif stage == "edit":
+            edit_decisions = generate_edit_decisions(project_dir)
+            print(f"  generated: {edit_decisions.relative_to(project_dir)}")
         else:
             _seed(project_dir, stage, fixture)
 
