@@ -39,6 +39,7 @@ from config import INBOX_DIR, PROJECTS_DIR, REPO_ROOT, STUDIO_ROOT
 # Importing the studio package loads engine.py, which imports root-level packages like lib/.
 sys.path.insert(0, str(REPO_ROOT))
 from studio.proposal_generator import generate_proposal_packet
+from studio.publish_log_generator import generate_publish_log
 from studio.research_generator import generate_research_brief
 from studio.render_report_generator import generate_render_report
 from studio.asset_manifest_generator import generate_asset_manifest
@@ -221,6 +222,9 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
         elif stage == "compose":
             render_report = generate_render_report(project_dir)
             print(f"  generated: {render_report.relative_to(project_dir)}")
+        elif stage == "publish":
+            publish_log = generate_publish_log(project_dir)
+            print(f"  generated: {publish_log.relative_to(project_dir)}")
         else:
             _seed(project_dir, stage, fixture)
 
