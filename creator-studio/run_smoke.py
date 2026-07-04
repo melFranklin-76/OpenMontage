@@ -40,6 +40,7 @@ from config import INBOX_DIR, PROJECTS_DIR, REPO_ROOT, STUDIO_ROOT
 sys.path.insert(0, str(REPO_ROOT))
 from studio.proposal_generator import generate_proposal_packet
 from studio.research_generator import generate_research_brief
+from studio.render_report_generator import generate_render_report
 from studio.asset_manifest_generator import generate_asset_manifest
 from studio.asset_materializer import materialize_assets
 from studio.edit_decision_generator import generate_edit_decisions
@@ -217,6 +218,9 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
         elif stage == "edit":
             edit_decisions = generate_edit_decisions(project_dir)
             print(f"  generated: {edit_decisions.relative_to(project_dir)}")
+        elif stage == "compose":
+            render_report = generate_render_report(project_dir)
+            print(f"  generated: {render_report.relative_to(project_dir)}")
         else:
             _seed(project_dir, stage, fixture)
 
