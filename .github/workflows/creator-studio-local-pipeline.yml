@@ -43,7 +43,18 @@ jobs:
 
       - name: Run Creator Studio local pipeline
         run: |
-          ./scripts/creator_studio_local_pipeline.sh \
-            "${{ inputs.pipeline }}" \
-            "${{ inputs.name }}" \
-            "${{ inputs.topic }}"
+          python creator-studio/run_smoke.py \
+            --pipeline "${{ inputs.pipeline }}" \
+            --name "${{ inputs.name }}" \
+            --topic "${{ inputs.topic }}" \
+            --keep
+
+      - name: Upload Creator Studio local pipeline artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: creator-studio-local-pipeline-${{ github.run_id }}
+          path: |
+            creator-studio/projects/${{ inputs.name }}
+            creator-studio/logs/${{ inputs.name }}.log
+          if-no-files-found: warn
+          retention-days: 7
