@@ -671,3 +671,9 @@ make test
 If this project looks useful to you, a ⭐ would really mean a lot — it helps others discover it too.
 
 If you'd like to go further, [sponsor the project](https://github.com/sponsors/calesthio) — OpenMontage is built nights and weekends, and your support makes that sustainable.
+
+## Creator Studio local pipeline
+
+Creator Studio includes a fully local generated smoke pipeline for developer verification.
+
+See [docs/creator-studio/local-pipeline.md](docs/creator-studio/local-pipeline.md) for local runs, GitHub Actions runs, workflow artifacts, and artifact download/review commands.
