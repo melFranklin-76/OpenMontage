@@ -668,3 +668,10 @@ make test
 **OpenMontage** — 拥有真正质量把控、由您的 AI 助手编排的生产级视频制作系统。
 
 如果这个项目对您有帮助，点一个 Star 对我们意义重大 —— 这也能帮助其他人发现它。
+
+## Creator Studio local pipeline
+
+Creator Studio includes a fully local generated smoke pipeline for developer verification.
+
+See [docs/creator-studio/local-pipeline.md](docs/creator-studio/local-pipeline.md) for local runs, GitHub Actions runs, workflow artifacts, and artifact download/review commands.
+
