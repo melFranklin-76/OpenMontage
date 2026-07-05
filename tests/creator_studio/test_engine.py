@@ -1845,3 +1845,74 @@ def test_run_stage_raises_keyerror_for_unknown_stage(tmp_path: Path) -> None:
 
     with pytest.raises(KeyError, match="nonexistent"):
         engine.run_stage("nonexistent", None, project_dir, pipeline=_explainer_pipeline())
+
+# Milestone 3M: Generic stage guard coverage
+
+def test_run_stage_rejects_unknown_stage(tmp_path: Path) -> None:
+    """run_stage should fail fast when the manifest has no matching stage."""
+
+    project_dir = _make_project(tmp_path)
+    engine = Engine()
+
+    with pytest.raises(KeyError):
+        engine.run_stage(
+            "not_a_stage",
+            None,
+            project_dir,
+            pipeline=_explainer_pipeline(),
+        )
+
+
+def test_run_stage_requires_previous_stage_completed(tmp_path: Path) -> None:
+    """run_stage should enforce manifest order before preparing a later stage."""
+
+    project_dir = _make_project(tmp_path)
+    engine = Engine()
+
+    with pytest.raises(RuntimeError) as exc:
+        engine.run_stage(
+            "script",
+            None,
+            project_dir,
+            pipeline=_explainer_pipeline(),
+        )
+
+    assert "Proposal stage must be completed before starting Script" in str(exc.value)
+    assert not (project_dir / "script" / "stage_request.json").exists()
+
+
+def test_run_stage_pending_result_includes_stage_specific_alias(tmp_path: Path) -> None:
+    """Generic run_stage should preserve wrapper-compatible output path aliases."""
+
+    project_dir = _research_complete_project(tmp_path)
+    engine = Engine()
+    pipeline = _explainer_pipeline()
+
+    _copy_fixture("research_brief.json", project_dir / "research" / "research_brief.json")
+    engine.complete_stage("research", project_dir, pipeline=pipeline)
+    _copy_fixture("proposal_packet.json", project_dir / "proposal" / "proposal_packet.json")
+    engine.complete_stage("proposal", project_dir, pipeline=pipeline)
+
+    result = engine.run_stage("script", None, project_dir, pipeline=pipeline)
+
+    assert result["status"] == "script_pending"
+    assert result["output_path"] == "script/script.json"
+    assert result["script_path"] == "script/script.json"
+    assert result["stage_request_path"] == "script/stage_request.json"
+
+
+def test_complete_stage_is_idempotent_after_completion(tmp_path: Path) -> None:
+    """Generic complete_stage should return already_complete without rewriting state."""
+
+    project_dir = _research_complete_project(tmp_path)
+    engine = Engine()
+    pipeline = _explainer_pipeline()
+
+    _copy_fixture("research_brief.json", project_dir / "research" / "research_brief.json")
+    engine.complete_stage("research", project_dir, pipeline=pipeline)
+
+    result = engine.complete_stage("research", project_dir, pipeline=pipeline)
+
+    assert result["status"] == "research_already_complete"
+    assert result["pipeline"] == pipeline.name
+    assert result["next_stage"] == "proposal"
