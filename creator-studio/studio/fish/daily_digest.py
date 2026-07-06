@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from .filter import evaluate_story
+from .intake import fetch_live_stories
 from .ranker import score_story
 
 
@@ -49,16 +50,30 @@ def build_daily_candidates(items: list[dict[str, str]]) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--input", help="Path to a normalized stories JSON file")
+    source.add_argument(
+        "--live",
+        action="store_true",
+        help="Fetch stories live from the configured RSS sources",
+    )
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--limit-per-source",
+        type=int,
+        default=20,
+        help="Max stories to pull from each source in --live mode",
+    )
     args = parser.parse_args()
 
-    input_path = Path(args.input)
-    output_path = Path(args.output)
+    if args.live:
+        items = fetch_live_stories(limit_per_source=args.limit_per_source)
+    else:
+        items = json.loads(Path(args.input).read_text())
 
-    items = json.loads(input_path.read_text())
     digest = build_daily_candidates(items)
 
+    output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(digest, indent=2) + "\n")
 
