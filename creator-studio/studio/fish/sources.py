@@ -19,6 +19,41 @@ DEFAULT_SOURCES: tuple[FeedSource, ...] = (
         url="https://www.lgbtqnation.com/feed/",
         category="lgbtq-news",
     ),
+    FeedSource(
+        name="The Advocate",
+        url="https://www.advocate.com/feed",
+        category="lgbtq-news",
+    ),
+    FeedSource(
+        name="them.",
+        url="https://www.them.us/feed/rss",
+        category="lgbtq-culture",
+    ),
+    FeedSource(
+        name="Out Magazine",
+        url="https://www.out.com/feed",
+        category="lgbtq-culture",
+    ),
+    FeedSource(
+        name="INTO More",
+        url="https://www.intomore.com/feed/",
+        category="lgbtq-culture",
+    ),
+    FeedSource(
+        name="Autostraddle",
+        url="https://www.autostraddle.com/feed/",
+        category="lesbian",
+    ),
+    FeedSource(
+        name="Bi.org News",
+        url="https://bi.org/en/feed",
+        category="bisexual",
+    ),
+    FeedSource(
+        name="TransGriot",
+        url="https://transgriot.blogspot.com/feeds/posts/default?alt=rss",
+        category="black-trans",
+    ),
 )
 
 
