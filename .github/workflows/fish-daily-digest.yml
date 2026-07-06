@@ -1,6 +1,10 @@
 name: FISH Daily Digest
 
 on:
+  schedule:
+    - cron: "0 11 * * *"   # 6:00 AM CT
+    - cron: "0 17 * * *"   # 12:00 PM CT
+    - cron: "0 1 * * *"    # 8:00 PM CT
   workflow_dispatch:
   push:
     paths:
@@ -16,7 +20,7 @@ on:
       - ".github/workflows/fish-daily-digest.yml"
 
 jobs:
-  fish-daily-digest:
+  fish-tests:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: creator-studio
@@ -48,3 +52,51 @@ jobs:
       - name: Show generated digest
         run: |
           cat creator-studio/out/fish/daily_story_candidates.example.json
+
+  fish-live-digest:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: creator-studio
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install feedparser
+
+      - name: Run live daily digest
+        run: |
+          python -m studio.fish.daily_digest \
+            --live \
+            --output fish-digest-$(date -u +%Y-%m-%d).json
+
+      - name: Show today's top stories
+        run: |
+          python -c "
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          print(f'Date: {data[\"date\"]}')
+          print(f'Total candidates: {len(data[\"items\"])}')
+          print()
+          for i, item in enumerate(data['items'][:10], 1):
+              print(f'{i}. [{item[\"matched_lane\"]}] {item[\"title\"]}')
+              print(f'   Score: {item[\"relevance_score\"]:.2f} | {item[\"source\"]}')
+              print(f'   {item[\"url\"]}')
+              print()
+          " fish-digest-*.json
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-digest-${{ github.run_id }}
+          path: fish-digest-*.json
+          retention-days: 30
