@@ -54,6 +54,26 @@ DEFAULT_SOURCES: tuple[FeedSource, ...] = (
         url="https://transgriot.blogspot.com/feeds/posts/default?alt=rss",
         category="black-trans",
     ),
+    FeedSource(
+        name="Washington Blade",
+        url="https://www.washingtonblade.com/feed/",
+        category="lgbtq-news",
+    ),
+    FeedSource(
+        name="Gay Times",
+        url="https://www.gaytimes.com/feed/",
+        category="lgbtq-news",
+    ),
+    FeedSource(
+        name="Towleroad",
+        url="https://www.towleroad.com/feed/",
+        category="gay",
+    ),
+    FeedSource(
+        name="Metro Weekly",
+        url="https://www.metroweekly.com/feed/",
+        category="lgbtq-news",
+    ),
 )
 
 
