@@ -23,6 +23,7 @@ TARGET_DURATION_SECONDS = 45
 BASE_HASHTAGS = ["#lgbtq", "#lgbtnews", "#queer", "#whatsthelgbtfish"]
 
 LANE_HASHTAGS = {
+    "legacy": ["#lgbthistory", "#queerhistory", "#stonewall", "#pride"],
     "gay": ["#gay", "#gaynews", "#pride"],
     "lesbian": ["#lesbian", "#wlw", "#sapphic"],
     "bisexual": ["#bisexual", "#bivisibility", "#bipride"],
@@ -30,6 +31,7 @@ LANE_HASHTAGS = {
 }
 
 LANE_WHY_LINES = {
+    "legacy": "Legacy stories like this one keep queer history from being forgotten.",
     "gay": "Stories like this shape what life looks like for gay people everywhere.",
     "lesbian": "Lesbian stories like this one deserve the spotlight, not a footnote.",
     "bisexual": "Bi stories rarely make the front page. This one should.",
