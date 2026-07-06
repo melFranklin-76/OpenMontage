@@ -1,0 +1,38 @@
+{
+  "show": "What's the LGBT, Fish?",
+  "date": "2026-07-06",
+  "scope": [
+    "gay",
+    "lesbian",
+    "bisexual",
+    "Black trans"
+  ],
+  "items": [
+    {
+      "title": "Black trans organizer leads Milwaukee safety initiative",
+      "source": "Example Source",
+      "url": "https://example.com/black-trans-story",
+      "published_at": "2026-07-06T09:00:00-05:00",
+      "matched_lane": "Black trans",
+      "matched_terms": [
+        "black trans"
+      ],
+      "summary": "A Black trans community organizer launches a local safety and health resource project.",
+      "relevance_score": 1.0,
+      "status": "candidate"
+    },
+    {
+      "title": "Lesbian filmmaker wins major award",
+      "source": "Example Source",
+      "url": "https://example.com/lesbian-film-story",
+      "published_at": "2026-07-06T10:00:00-05:00",
+      "matched_lane": "lesbian",
+      "matched_terms": [
+        "lesbian"
+      ],
+      "summary": "A lesbian filmmaker receives recognition for a new documentary.",
+      "relevance_score": 0.92,
+      "status": "candidate"
+    }
+  ]
+}
