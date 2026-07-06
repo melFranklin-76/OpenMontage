@@ -33,7 +33,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest jsonschema pyyaml
+          python -m pip install pytest jsonschema pyyaml feedparser
 
       - name: Run FISH tests
         run: |
