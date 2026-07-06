@@ -18,6 +18,8 @@ on:
 jobs:
   fish-daily-digest:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: creator-studio
 
     steps:
       - name: Check out repo
