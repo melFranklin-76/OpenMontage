@@ -85,3 +85,6 @@ remotion-composer/public/demo-props/test-*
 remotion-composer/public/demo-props/talking-head-*
 remotion-composer/public/demo-props/caption-burn-*
 .venv/
+
+# FISH approval queue (local review state)
+creator-studio/out/fish/queue/
