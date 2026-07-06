@@ -26,6 +26,18 @@ REJECT_TERMS = (
     "lgbtqia meaning",
 )
 
+LEGACY_ICONS = (
+    "stonewall",
+    "marsha p. johnson",
+    "marsha p johnson",
+    "sylvia rivera",
+    "victoria cruz",
+    "miss major",
+    "bayard rustin",
+    "barbara gittings",
+    "frank kameny",
+)
+
 
 @dataclass(frozen=True)
 class FilterResult:
@@ -35,9 +47,16 @@ class FilterResult:
     lane: str | None
 
 
+def _is_legacy_story(text: str) -> bool:
+    haystack = text.lower()
+    return any(icon in haystack for icon in LEGACY_ICONS)
+
+
 def classify_lane(text: str) -> str | None:
     haystack = text.lower()
 
+    if _is_legacy_story(haystack):
+        return "legacy"
     if "black trans" in haystack or "black transgender" in haystack:
         return "Black trans"
     if "lesbian" in haystack:
@@ -59,7 +78,12 @@ def evaluate_story(title: str, summary: str = "") -> FilterResult:
     matched = [term for term in ACCEPT_TERMS if term in text]
     lane = classify_lane(text)
 
-    accepted = bool(matched) and not rejected and lane != "transgender-review"
+    if lane == "legacy":
+        accepted = not rejected
+        if not matched:
+            matched = [icon for icon in LEGACY_ICONS if icon in text]
+    else:
+        accepted = bool(matched) and not rejected and lane != "transgender-review"
 
     return FilterResult(
         accepted=accepted,

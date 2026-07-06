@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import html
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import feedparser
+
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 @dataclass(frozen=True)
@@ -22,7 +26,8 @@ class NormalizedStory:
 def _clean_text(value: Any) -> str:
     if value is None:
         return ""
-    return " ".join(str(value).split())
+    text = _TAG_RE.sub(" ", str(value))
+    return " ".join(html.unescape(text).split())
 
 
 def _published_at(entry: Any) -> str:

@@ -20,6 +20,23 @@ def test_normalize_entry_maps_common_feed_fields() -> None:
     }
 
 
+def test_normalize_entry_strips_html_markup() -> None:
+    entry = {
+        "title": "Story with &amp; entity",
+        "link": "https://example.com/story",
+        "summary": (
+            '<img src="https://example.com/photo.jpg" /><br /><p>Victoria Cruz, '
+            "one of the matriarchs, has died.</p><p>She was 79.</p>"
+        ),
+    }
+
+    story = normalize_entry(entry, "Example Source")
+
+    assert story["title"] == "Story with & entity"
+    assert story["summary"] == "Victoria Cruz, one of the matriarchs, has died. She was 79."
+    assert "<" not in story["summary"]
+
+
 def test_normalize_entry_handles_missing_fields() -> None:
     story = normalize_entry({}, "Example Source")
 

@@ -25,6 +25,36 @@ def test_accepts_black_trans_story() -> None:
     assert result.lane == "Black trans"
 
 
+def test_accepts_legacy_stonewall_story() -> None:
+    result = evaluate_story(
+        "Victoria Cruz, Stonewall hero and trans activist, dies at 79"
+    )
+    assert result.accepted
+    assert result.lane == "legacy"
+
+
+def test_legacy_takes_priority_over_other_lanes() -> None:
+    result = evaluate_story(
+        "Marsha P. Johnson honored as gay rights pioneer"
+    )
+    assert result.accepted
+    assert result.lane == "legacy"
+
+
+def test_legacy_accepts_even_without_core_lane_terms() -> None:
+    result = evaluate_story(
+        "Sylvia Rivera's legacy lives on in community organizing"
+    )
+    assert result.accepted
+    assert result.lane == "legacy"
+
+
+def test_general_trans_story_stays_rejected() -> None:
+    result = evaluate_story("Trans woman wins local award")
+    assert not result.accepted
+    assert result.lane == "transgender-review"
+
+
 def test_rejects_pronoun_debate() -> None:
     result = evaluate_story("What are pronouns and why debate continues")
     assert not result.accepted
