@@ -2,7 +2,9 @@ name: FISH Daily Digest
 
 on:
   schedule:
-    - cron: "30 12 * * *"  # 7:30 AM CT / 8:30 AM ET daily
+    - cron: "0 11 * * *"   # 6:00 AM CT
+    - cron: "0 17 * * *"   # 12:00 PM CT
+    - cron: "0 1 * * *"    # 8:00 PM CT
   workflow_dispatch:
   push:
     paths:
