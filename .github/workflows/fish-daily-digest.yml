@@ -68,10 +68,31 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install system deps (ffmpeg, piper)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+
+      - name: Install Piper TTS
+        run: |
+          PIPER_URL="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
+          curl -sL "$PIPER_URL" | sudo tar -xz -C /opt
+          sudo ln -sf /opt/piper/piper /usr/local/bin/piper
+          piper --help >/dev/null 2>&1 || true
+
+      - name: Download Piper voice model
+        run: |
+          mkdir -p "$HOME/.piper/models"
+          VOICE_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
+          curl -sL "$VOICE_BASE/en_US-lessac-medium.onnx" \
+            -o "$HOME/.piper/models/en_US-lessac-medium.onnx"
+          curl -sL "$VOICE_BASE/en_US-lessac-medium.onnx.json" \
+            -o "$HOME/.piper/models/en_US-lessac-medium.onnx.json"
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install feedparser jsonschema pyyaml
+          python -m pip install feedparser jsonschema pyyaml pillow
 
       - name: Run live daily digest
         run: |
@@ -123,11 +144,24 @@ jobs:
           " "$f"
           done
 
-      - name: Upload digest and scripts
+      - name: Render top-ranked reel to MP4
+        run: |
+          for RANK in 1 2 3; do
+            SCRIPT="fish-script-rank${RANK}.json"
+            [ -f "$SCRIPT" ] || continue
+            python -m studio.fish.reel_render \
+              --script "$SCRIPT" \
+              --output "fish-reel-rank${RANK}.mp4" 2>&1 | tail -20 || true
+          done
+          echo "Rendered reels:"
+          ls -la fish-reel-rank*.mp4 2>/dev/null || echo "No reels rendered"
+
+      - name: Upload digest, scripts, and reels
         uses: actions/upload-artifact@v4
         with:
           name: fish-daily-${{ github.run_id }}
           path: |
             fish-digest-*.json
             fish-script-rank*.json
+            fish-reel-rank*.mp4
           retention-days: 30
