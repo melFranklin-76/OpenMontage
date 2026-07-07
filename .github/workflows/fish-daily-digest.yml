@@ -94,9 +94,39 @@ jobs:
               print()
           " fish-digest-*.json
 
-      - name: Upload digest artifact
+      - name: Generate reel scripts for top 3 stories
+        run: |
+          DIGEST=$(ls fish-digest-*.json | head -1)
+          for RANK in 1 2 3; do
+            python -m studio.fish.research_handoff \
+              --digest "$DIGEST" --rank "$RANK" \
+              --output "fish-handoff-rank${RANK}.json" 2>/dev/null || continue
+            python -m studio.fish.reel_script \
+              --handoff "fish-handoff-rank${RANK}.json" \
+              --output "fish-script-rank${RANK}.json" 2>/dev/null || true
+          done
+          echo "Generated scripts:"
+          ls -la fish-script-rank*.json 2>/dev/null || echo "No scripts generated"
+
+      - name: Show generated scripts
+        run: |
+          for f in fish-script-rank*.json; do
+            [ -f "$f" ] || continue
+            python -c "
+          import json, sys
+          s = json.load(open(sys.argv[1]))
+          print(f'Rank {sys.argv[1]}: [{s[\"lane\"]}] {s[\"topic\"]}')
+          total = sum(sec[\"duration_seconds\"] for sec in s[\"sections\"])
+          print(f'  {total}s, {len(s[\"sections\"])} sections')
+          print()
+          " "$f"
+          done
+
+      - name: Upload digest and scripts
         uses: actions/upload-artifact@v4
         with:
-          name: fish-digest-${{ github.run_id }}
-          path: fish-digest-*.json
+          name: fish-daily-${{ github.run_id }}
+          path: |
+            fish-digest-*.json
+            fish-script-rank*.json
           retention-days: 30
