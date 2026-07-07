@@ -1,4 +1,4 @@
-from studio.fish.filter import evaluate_story
+from studio.fish.filter import classify_lane, evaluate_story
 
 
 def test_accepts_gay_story() -> None:
@@ -53,6 +53,19 @@ def test_general_trans_story_stays_rejected() -> None:
     result = evaluate_story("Trans woman wins local award")
     assert not result.accepted
     assert result.lane == "transgender-review"
+
+
+def test_legacy_keyword_in_summary_only_does_not_match_legacy_lane() -> None:
+    result = evaluate_story(
+        "Advocate NL 7/6/26",
+        summary="Stonewall anniversary celebrations continue across NYC",
+    )
+    assert result.lane != "legacy"
+
+
+def test_classify_lane_legacy_requires_title() -> None:
+    assert classify_lane("stonewall anniversary recap", title="Advocate NL 7/6/26") is None
+    assert classify_lane("stonewall anniversary recap", title="Stonewall at 57") == "legacy"
 
 
 def test_rejects_pronoun_debate() -> None:

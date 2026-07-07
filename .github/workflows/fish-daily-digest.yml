@@ -71,7 +71,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install feedparser
+          python -m pip install feedparser jsonschema
 
       - name: Run live daily digest
         run: |
