@@ -80,14 +80,19 @@ jobs:
           sudo ln -sf /opt/piper/piper /usr/local/bin/piper
           piper --help >/dev/null 2>&1 || true
 
-      - name: Download Piper voice model
+      - name: Download Piper voice models (lessac/amy/ryan)
         run: |
           mkdir -p "$HOME/.piper/models"
-          VOICE_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
-          curl -sL "$VOICE_BASE/en_US-lessac-medium.onnx" \
-            -o "$HOME/.piper/models/en_US-lessac-medium.onnx"
-          curl -sL "$VOICE_BASE/en_US-lessac-medium.onnx.json" \
-            -o "$HOME/.piper/models/en_US-lessac-medium.onnx.json"
+          BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main"
+          for VOICE in \
+            "en/en_US/lessac/medium/en_US-lessac-medium" \
+            "en/en_US/amy/medium/en_US-amy-medium" \
+            "en/en_US/ryan/high/en_US-ryan-high"; do
+            NAME=$(basename "$VOICE")
+            curl -sL "$BASE/${VOICE}.onnx" -o "$HOME/.piper/models/${NAME}.onnx"
+            curl -sL "$BASE/${VOICE}.onnx.json" -o "$HOME/.piper/models/${NAME}.onnx.json"
+          done
+          ls -la "$HOME/.piper/models/"
 
       - name: Install Python dependencies
         run: |

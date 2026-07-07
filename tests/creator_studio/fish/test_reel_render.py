@@ -38,3 +38,25 @@ def test_lane_bg_contains_all_lanes():
 def test_default_piper_model_path_shape():
     # Should end in an .onnx path under the user's home dir
     assert str(reel_render.DEFAULT_PIPER_MODEL).endswith(".onnx")
+
+
+def test_lane_voice_map_covers_all_lanes():
+    for lane in ("gay", "lesbian", "bisexual", "Black trans", "legacy"):
+        assert lane in reel_render.LANE_VOICE
+        assert reel_render.LANE_VOICE[lane].endswith(".onnx")
+
+
+def test_voice_for_lane_falls_back_to_default(monkeypatch, tmp_path):
+    """If the mapped voice isn't on disk, fall back to lessac."""
+    monkeypatch.setattr(reel_render, "PIPER_MODEL_DIR", tmp_path)
+    fallback = tmp_path / "en_US-lessac-medium.onnx"
+    fallback.write_bytes(b"stub")
+    monkeypatch.setattr(reel_render, "DEFAULT_PIPER_MODEL", fallback)
+    result = reel_render._voice_for_lane("gay")
+    assert result == fallback
+
+
+def test_brand_and_music_constants():
+    assert reel_render.BRAND_LEAD_SECONDS > 0
+    assert reel_render.BRAND_OUTRO_SECONDS > 0
+    assert reel_render.MUSIC_DUCK_DB < 0
