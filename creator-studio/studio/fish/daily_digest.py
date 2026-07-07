@@ -10,6 +10,7 @@ from pathlib import Path
 from .filter import evaluate_story
 from .intake import fetch_live_stories
 from .ranker import score_story
+from .social_research import fetch_social_stories
 
 
 def build_daily_candidates(items: list[dict[str, str]]) -> dict:
@@ -64,12 +65,33 @@ def main() -> int:
         default=20,
         help="Max stories to pull from each source in --live mode",
     )
+    parser.add_argument(
+        "--social",
+        action="store_true",
+        help="Supplement RSS stories with Reddit, HN, and web social sources",
+    )
+    parser.add_argument(
+        "--social-only",
+        action="store_true",
+        help="Use only social sources, skip RSS entirely",
+    )
+    parser.add_argument(
+        "--social-topic",
+        default="LGBT LGBTQ gay lesbian bisexual transgender news",
+        help="Search query for web/Twitter/HN social sources",
+    )
     args = parser.parse_args()
 
-    if args.live:
+    if args.social_only:
+        items = fetch_social_stories(topic=args.social_topic)
+    elif args.live:
         items = fetch_live_stories(limit_per_source=args.limit_per_source)
+        if args.social:
+            items = items + fetch_social_stories(topic=args.social_topic)
     else:
         items = json.loads(Path(args.input).read_text())
+        if args.social:
+            items = items + fetch_social_stories(topic=args.social_topic)
 
     digest = build_daily_candidates(items)
 
