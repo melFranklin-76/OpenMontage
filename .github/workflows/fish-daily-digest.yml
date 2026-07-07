@@ -151,15 +151,28 @@ jobs:
 
       - name: Render top-ranked reel to MP4
         run: |
+          set -euo pipefail
+          FAILED=0
           for RANK in 1 2 3; do
             SCRIPT="fish-script-rank${RANK}.json"
             [ -f "$SCRIPT" ] || continue
-            python -m studio.fish.reel_render \
+            echo "::group::Render rank ${RANK}"
+            if ! python -m studio.fish.reel_render \
               --script "$SCRIPT" \
-              --output "fish-reel-rank${RANK}.mp4" 2>&1 | tail -20 || true
+              --output "fish-reel-rank${RANK}.mp4"; then
+              echo "::error::reel_render failed for rank ${RANK}"
+              FAILED=$((FAILED + 1))
+            fi
+            echo "::endgroup::"
           done
           echo "Rendered reels:"
           ls -la fish-reel-rank*.mp4 2>/dev/null || echo "No reels rendered"
+          # Fail the job if every rank we attempted failed; a single bad
+          # story shouldn't tank the run, but a total failure should.
+          if [ ! -f fish-reel-rank1.mp4 ] && [ ! -f fish-reel-rank2.mp4 ] && [ ! -f fish-reel-rank3.mp4 ]; then
+            echo "::error::No reels were rendered — failing job for visibility"
+            exit 1
+          fi
 
       - name: Publish rank-1 reel to YouTube (private draft)
         if: env.YOUTUBE_TOKEN_JSON != ''
