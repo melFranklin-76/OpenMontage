@@ -340,9 +340,15 @@ def render_reel(
     concat_list = tmp_dir / "concat.txt"
     concat_list.write_text("".join(f"file '{w}'\n" for w in seg_wavs))
     voice_raw = tmp_dir / "voice_raw.wav"
+    # Re-encode to a uniform PCM format instead of stream-copying:
+    # different Piper voices can emit different sample rates (lessac/amy
+    # 22050 Hz, ryan-high 22050 Hz but could shift), and concat -c copy
+    # requires identical codecs / sample rates / channel layouts. Ubuntu
+    # CI ffmpeg is stricter than macOS about this and errors out. Re-encoding
+    # to 22050/mono is lossless-adjacent for Piper output and always works.
     subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-         "-i", str(concat_list), "-c", "copy", str(voice_raw)],
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
+         "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le", str(voice_raw)],
         check=True, capture_output=True,
     )
     voice_wav = tmp_dir / "voice.wav"
