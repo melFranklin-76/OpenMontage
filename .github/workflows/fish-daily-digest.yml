@@ -17,6 +17,9 @@ on:
       - "creator-studio/out/fish/sample_stories.json"
       - ".github/workflows/fish-daily-digest.yml"
 
+permissions:
+  contents: write
+
 jobs:
   fish-tests:
     runs-on: ubuntu-latest
@@ -179,6 +182,30 @@ jobs:
             echo "::error::No reels were rendered — failing job for visibility"
             exit 1
           fi
+
+      - name: Create public release assets for top 3 reels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="fish-daily-$(TZ=America/Chicago date +%Y-%m-%d)"
+          ASSETS=()
+          for RANK in 1 2 3; do
+            FILE="fish-reel-rank${RANK}.mp4"
+            if [ -f "$FILE" ]; then
+              ASSETS+=("$FILE")
+            fi
+          done
+          if [ "${#ASSETS[@]}" -eq 0 ]; then
+            echo "No top-3 reels rendered; skipping release asset upload."
+            exit 0
+          fi
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Public FISH top-3 reel assets for Instagram publishing." \
+            --prerelease \
+            "${ASSETS[@]}"
 
       - name: Render long-form roundup to MP4
         run: |
