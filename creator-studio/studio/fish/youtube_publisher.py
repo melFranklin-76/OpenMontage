@@ -118,7 +118,28 @@ def hydrate_token_from_env() -> None:
 
 # ── metadata ─────────────────────────────────────────────────────────────────
 
-def build_metadata(script: dict, privacy: str = "unlisted") -> dict:
+def _format_ts(seconds: int) -> str:
+    """YouTube chapter timestamp: M:SS or H:MM:SS."""
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def build_metadata(script: dict, privacy: str = "unlisted", fmt: str = "short") -> dict:
+    """Build YouTube metadata for either a Short or a long-form roundup.
+
+    fmt="short":  single-story reel_script — #Shorts title tag, one source.
+    fmt="long":   roundup script — chapter timestamps in description, all
+                  story sources listed, no #Shorts tag.
+    """
+    if fmt == "long":
+        return _build_long_metadata(script, privacy)
+    return _build_short_metadata(script, privacy)
+
+
+def _build_short_metadata(script: dict, privacy: str) -> dict:
     lane = script.get("lane", "")
     topic = script.get("topic", "").strip() or "Today's LGBT news"
     source = script.get("source_attribution", {})
@@ -146,6 +167,69 @@ def build_metadata(script: dict, privacy: str = "unlisted") -> dict:
         " ".join(f"#{t}" for t in tags),
     ]
     description = "\n".join(line for line in description_lines if line is not None).strip()
+
+    return {
+        "snippet": {
+            "title": title,
+            "description": description,
+            "tags": tags,
+            "categoryId": CATEGORY_ID,
+        },
+        "status": {
+            "privacyStatus": privacy,
+            "selfDeclaredMadeForKids": False,
+        },
+    }
+
+
+def _build_long_metadata(script: dict, privacy: str) -> dict:
+    digest_date = script.get("digest_date", "")
+    story_count = script.get("story_count", 10)
+    stories = script.get("stories", [])
+
+    # Collect every lane present for tags. No "Shorts" tag on long-form.
+    lanes = {s.get("lane", "") for s in stories if s.get("lane")}
+    tags = [t for t in BASE_TAGS if t != "Shorts"]
+    for lane in lanes:
+        tags += LANE_TAGS.get(lane, [])
+    # de-dupe, keep order, cap
+    seen: set[str] = set()
+    tags = [t for t in tags if not (t in seen or seen.add(t))][:20]
+
+    title = f"LGBT News Daily Roundup — {digest_date} | {story_count} stories"
+    if len(title) > 100:
+        title = title[:99]
+
+    # Chapters: YouTube requires the first timestamp to be 0:00 and at least
+    # three chapters, each 10+ seconds.
+    chapter_lines = []
+    for ch in script.get("chapter_timestamps", []):
+        chapter_lines.append(f"{_format_ts(ch['seconds'])} {ch['label']}")
+    if chapter_lines and not chapter_lines[0].startswith("0:00"):
+        chapter_lines.insert(0, "0:00 Cold open")
+
+    source_lines = [
+        f"{s['rank']}. {s['title']} — {s['source']}\n{s['url']}"
+        for s in stories
+    ]
+
+    description_parts = [
+        f"Today's top {story_count} LGBT news stories — {digest_date}.",
+        "",
+        "⏱ CHAPTERS",
+        *chapter_lines,
+        "",
+        "📰 SOURCES",
+        *source_lines,
+        "",
+        "From What's the LGBT, Fish? — daily LGBT news roundup, every day at 8 PM CT.",
+        "",
+        " ".join(f"#{t.replace(' ', '')}" for t in tags),
+    ]
+    description = "\n".join(description_parts).strip()
+    # YouTube caps descriptions at 5000 chars
+    if len(description) > 4900:
+        description = description[:4900]
 
     return {
         "snippet": {
@@ -216,6 +300,11 @@ def main() -> int:
         help="Initial privacy status (default: unlisted)",
     )
     parser.add_argument(
+        "--format", default="short", choices=["short", "long"],
+        help="Metadata style: 'short' (single story, #Shorts) or "
+             "'long' (roundup with chapters). Default: short",
+    )
+    parser.add_argument(
         "--output", default="",
         help="Where to write the upload receipt JSON (default: alongside video)",
     )
@@ -235,7 +324,7 @@ def main() -> int:
     hydrate_token_from_env()
 
     script = json.loads(Path(args.script).read_text())
-    metadata = build_metadata(script, privacy=args.privacy)
+    metadata = build_metadata(script, privacy=args.privacy, fmt=args.format)
 
     if args.dry_run:
         print("[youtube_publisher] --dry-run, metadata only:")
@@ -246,9 +335,14 @@ def main() -> int:
     response = upload_video(video_path, metadata)
 
     video_id = response.get("id", "")
+    if args.format == "long":
+        watch_url = f"https://youtube.com/watch?v={video_id}" if video_id else ""
+    else:
+        watch_url = f"https://youtube.com/shorts/{video_id}" if video_id else ""
     receipt = {
         "video_id": video_id,
-        "watch_url": f"https://youtube.com/shorts/{video_id}" if video_id else "",
+        "watch_url": watch_url,
+        "format": args.format,
         "privacy": args.privacy,
         "metadata": metadata,
         "response": {k: response.get(k) for k in ("id", "kind", "etag")},
