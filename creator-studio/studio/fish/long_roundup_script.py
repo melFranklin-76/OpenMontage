@@ -59,7 +59,7 @@ INTRO_LINES_TEMPLATE = (
     "from across the community — from {lanes_summary}. "
     "Before we get into it, one ground rule: the ordering here reflects "
     "relevance scoring, not editorial preference. Every story on this list "
-    "made the cut because our filter — five lanes, gay, lesbian, bisexual, "
+    "made the cut because our filter — five lanes, lesbian, gay, bisexual, "
     "Black trans, and legacy — flagged it as worth your twenty-four minutes. "
     "Stay with me. Some of these you won't find on the front page, and that's "
     "exactly why we're here."

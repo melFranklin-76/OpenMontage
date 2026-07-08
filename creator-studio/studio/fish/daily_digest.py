@@ -44,7 +44,7 @@ def build_daily_candidates(items: list[dict[str, str]]) -> dict:
     return {
         "show": "What's the LGBT, Fish?",
         "date": date.today().isoformat(),
-        "scope": ["gay", "lesbian", "bisexual", "Black trans"],
+        "scope": ["lesbian", "gay", "bisexual", "Black trans"],
         "items": candidates,
     }
 
@@ -77,7 +77,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--social-topic",
-        default="LGBT LGBTQ gay lesbian bisexual transgender news",
+        default="LGBT LGBTQ lesbian gay bisexual transgender news",
         help="Search query for web/Twitter/HN social sources",
     )
     args = parser.parse_args()
