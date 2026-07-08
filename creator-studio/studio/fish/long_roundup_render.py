@@ -44,6 +44,8 @@ from .reel_render import (
     LANE_BG,
     DEFAULT_BG,
     MUSIC_DUCK_DB,
+    USE_EDGE_TTS,
+    DEFAULT_EDGE_VOICE,
 )
 
 # 16:9 horizontal, YouTube long-form standard
@@ -190,12 +192,12 @@ def render_roundup(
     script: dict, output: Path, tmp_dir: Path, music_path: Path | None = None,
 ) -> dict:
     """Render a long-form roundup script to a horizontal MP4."""
-    _check_bin("piper")
+    if not USE_EDGE_TTS:
+        _check_bin("piper")
+        if not DEFAULT_PIPER_MODEL.exists():
+            sys.exit(f"[long_roundup_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
     _check_bin("ffmpeg")
     _check_bin("ffprobe")
-
-    if not DEFAULT_PIPER_MODEL.exists():
-        sys.exit(f"[long_roundup_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
 
     tmp_dir.mkdir(parents=True, exist_ok=True)
     sections = script.get("sections", [])
@@ -205,7 +207,7 @@ def render_roundup(
     stories = {s["rank"]: s for s in script.get("stories", [])}
 
     # 1. TTS each section using the voice that matches its lane (fallback host voice)
-    host_voice = DEFAULT_PIPER_MODEL
+    host_voice = DEFAULT_EDGE_VOICE if USE_EDGE_TTS else DEFAULT_PIPER_MODEL
     seg_wavs: list[Path] = []
     seg_durations: list[float] = []
     seg_lanes: list[str] = []

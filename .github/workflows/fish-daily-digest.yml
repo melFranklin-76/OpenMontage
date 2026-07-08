@@ -70,36 +70,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install system deps (ffmpeg, piper)
+      - name: Install system deps (ffmpeg)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
 
-      - name: Install Piper TTS
-        run: |
-          PIPER_URL="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
-          curl -sL "$PIPER_URL" | sudo tar -xz -C /opt
-          sudo ln -sf /opt/piper/piper /usr/local/bin/piper
-          piper --help >/dev/null 2>&1 || true
-
-      - name: Download Piper voice models (lessac/amy/ryan)
-        run: |
-          mkdir -p "$HOME/.piper/models"
-          BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main"
-          for VOICE in \
-            "en/en_US/lessac/medium/en_US-lessac-medium" \
-            "en/en_US/amy/medium/en_US-amy-medium" \
-            "en/en_US/ryan/high/en_US-ryan-high"; do
-            NAME=$(basename "$VOICE")
-            curl -sL "$BASE/${VOICE}.onnx" -o "$HOME/.piper/models/${NAME}.onnx"
-            curl -sL "$BASE/${VOICE}.onnx.json" -o "$HOME/.piper/models/${NAME}.onnx.json"
-          done
-          ls -la "$HOME/.piper/models/"
-
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install feedparser jsonschema pyyaml pillow
+          python -m pip install feedparser jsonschema pyyaml pillow edge-tts
 
       - name: Run live daily digest
         run: |

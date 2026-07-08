@@ -32,10 +32,27 @@ from pathlib import Path
 PIPER_MODEL_DIR = Path.home() / ".piper" / "models"
 DEFAULT_PIPER_MODEL = PIPER_MODEL_DIR / "en_US-lessac-medium.onnx"
 
-# Per-lane voice picks. Falls back to lessac if the mapped model is missing.
-# lessac  = neutral female, dignified
-# amy     = warm female
-# ryan    = warm male
+# ── TTS engine selection ────────────────────────────────────────────────────
+# Prefer Edge TTS (free, neural, expressive) over Piper (free, local, robotic).
+# Edge needs internet; Piper is the offline fallback.
+
+USE_EDGE_TTS = True
+try:
+    import edge_tts  # noqa: F401
+except ImportError:
+    USE_EDGE_TTS = False
+
+DEFAULT_EDGE_VOICE = "en-US-AvaNeural"
+
+EDGE_LANE_VOICE = {
+    "gay":         "en-US-AndrewNeural",
+    "lesbian":     "en-US-AvaNeural",
+    "bisexual":    "en-US-EmmaNeural",
+    "Black trans": "en-US-AvaNeural",
+    "legacy":      "en-US-AriaNeural",
+}
+
+# Legacy Piper voices (offline fallback)
 LANE_VOICE = {
     "gay":         "en_US-ryan-high.onnx",
     "lesbian":     "en_US-amy-medium.onnx",
@@ -153,8 +170,10 @@ def _render_brand_card(title: str, subtitle: str, out_png: Path, bg_hex: str) ->
     img.save(out_png)
 
 
-def _voice_for_lane(lane: str) -> Path:
-    """Return the Piper voice for a lane, falling back to lessac."""
+def _voice_for_lane(lane: str) -> Path | str:
+    """Return the voice for a lane — Edge TTS name or Piper model path."""
+    if USE_EDGE_TTS:
+        return EDGE_LANE_VOICE.get(lane, DEFAULT_EDGE_VOICE)
     preferred = PIPER_MODEL_DIR / LANE_VOICE.get(lane, DEFAULT_PIPER_MODEL.name)
     if preferred.exists():
         return preferred
@@ -191,8 +210,73 @@ def _check_bin(name: str) -> None:
         sys.exit(f"[reel_render] required binary not on PATH: {name}")
 
 
-def _piper_tts(text: str, out_wav: Path, model: Path | None = None) -> None:
-    """Generate a WAV from text using Piper. Raises on failure."""
+def _clean_for_tts(text: str) -> str:
+    """Sanitize text so TTS reads it naturally instead of spelling symbols."""
+    # URLs (belt-and-suspenders with the script-level strip)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"www\.\S+", "", text)
+    # Dates with slashes: 7/8/2026 → July 8, 2026
+    _MONTHS = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ]
+    def _date_repl(m: re.Match) -> str:
+        mo, day, yr = int(m.group(1)), int(m.group(2)), m.group(3)
+        if 1 <= mo <= 12:
+            return f"{_MONTHS[mo - 1]} {day}, {yr}"
+        return m.group(0)
+    text = re.sub(r"\b(\d{1,2})/(\d{1,2})/(20\d{2})\b", _date_repl, text)
+    # Bare slashes between words: "lesbian/gay" → "lesbian and gay"
+    text = re.sub(r"(\w)/(\w)", r"\1 and \2", text)
+    # Ampersands
+    text = re.sub(r"\s*&\s*", " and ", text)
+    # Common abbreviations TTS might stumble on
+    text = re.sub(r"\bvs\.", "versus", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bDr\.", "Doctor", text)
+    text = re.sub(r"\bSt\.", "Saint", text)
+    text = re.sub(r"\bGov\.", "Governor", text)
+    text = re.sub(r"\bRep\.", "Representative", text)
+    text = re.sub(r"\bSen\.", "Senator", text)
+    # Percent sign
+    text = re.sub(r"(\d)\s*%", r"\1 percent", text)
+    # Dollar amounts
+    text = re.sub(r"\$(\d[\d,]*(?:\.\d+)?)\s*(million|billion|trillion)?",
+                  lambda m: f"{m.group(1)} {'dollars' if not m.group(2) else m.group(2) + ' dollars'}",
+                  text, flags=re.IGNORECASE)
+    # Clean up extra whitespace
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    return text
+
+
+def _edge_tts(text: str, out_wav: Path, voice: str | None = None) -> None:
+    """Generate audio via Edge TTS (async) and convert to WAV for ffmpeg."""
+    import asyncio
+
+    voice = voice or DEFAULT_EDGE_VOICE
+    out_wav.parent.mkdir(parents=True, exist_ok=True)
+    mp3_path = out_wav.with_suffix(".mp3")
+
+    async def _generate():
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(str(mp3_path))
+
+    asyncio.run(_generate())
+
+    if not mp3_path.exists() or mp3_path.stat().st_size < 100:
+        raise RuntimeError(f"Edge TTS failed for voice {voice}")
+
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(mp3_path),
+         "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le", str(out_wav)],
+        capture_output=True, text=True, timeout=30,
+    )
+    mp3_path.unlink(missing_ok=True)
+    if proc.returncode != 0 or not out_wav.exists():
+        raise RuntimeError(f"Edge TTS mp3→wav conversion failed: {proc.stderr}")
+
+
+def _piper_tts_raw(text: str, out_wav: Path, model: Path | None = None) -> None:
+    """Generate a WAV from text using Piper (offline fallback)."""
     out_wav.parent.mkdir(parents=True, exist_ok=True)
     model = model or DEFAULT_PIPER_MODEL
     proc = subprocess.run(
@@ -204,6 +288,17 @@ def _piper_tts(text: str, out_wav: Path, model: Path | None = None) -> None:
     )
     if proc.returncode != 0 or not out_wav.exists():
         raise RuntimeError(f"Piper failed: {proc.stderr}")
+
+
+def _piper_tts(text: str, out_wav: Path, model: Path | str | None = None) -> None:
+    """Generate speech — Edge TTS if available, Piper as fallback."""
+    text = _clean_for_tts(text)
+    if USE_EDGE_TTS:
+        voice = model if isinstance(model, str) else None
+        _edge_tts(text, out_wav, voice=voice)
+    else:
+        piper_model = model if isinstance(model, Path) else None
+        _piper_tts_raw(text, out_wav, model=piper_model)
 
 
 def _wav_duration(wav: Path) -> float:
@@ -306,12 +401,12 @@ def render_reel(
     music_path: Path | None = None,
 ) -> dict:
     """Render a FISH reel_script to an MP4. Returns render report."""
-    _check_bin("piper")
+    if not USE_EDGE_TTS:
+        _check_bin("piper")
+        if not DEFAULT_PIPER_MODEL.exists():
+            sys.exit(f"[reel_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
     _check_bin("ffmpeg")
     _check_bin("ffprobe")
-
-    if not DEFAULT_PIPER_MODEL.exists():
-        sys.exit(f"[reel_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
 
     tmp_dir.mkdir(parents=True, exist_ok=True)
     lane = script.get("lane", "")
@@ -545,7 +640,7 @@ def render_reel(
         "background_color": bg,
         "resolution": f"{WIDTH}x{HEIGHT}",
         "fps": FPS,
-        "voice_model": voice.name,
+        "voice_model": voice if isinstance(voice, str) else voice.name,
         "hero_image": have_hero,
         "broll_clip": broll_clip is not None,
         "brand_cards": True,
