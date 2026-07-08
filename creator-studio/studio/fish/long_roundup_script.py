@@ -176,6 +176,9 @@ def _strip_html(html: str) -> str:
                 .replace("&#8217;", "'").replace("&#8216;", "'")
                 .replace("&#8220;", '"').replace("&#8221;", '"')
                 .replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">"))
+    # Strip URLs — Piper TTS spells these out letter by letter
+    html = re.sub(r"https?://\S+", "", html)
+    html = re.sub(r"www\.\S+", "", html)
     return re.sub(r"[ \t]+", " ", html)
 
 
@@ -211,7 +214,11 @@ def _extract_key_sentences(article_text: str, max_sentences: int = 10) -> list[s
     if not article_text:
         return []
 
-    body = re.sub(r"\s+", " ", article_text)
+    # Strip any URLs/emails that survived HTML cleanup — TTS spells them out
+    body = re.sub(r"https?://\S+", "", article_text)
+    body = re.sub(r"www\.\S+", "", body)
+    body = re.sub(r"\S+@\S+\.\S+", "", body)
+    body = re.sub(r"\s+", " ", body)
 
     candidates: list[tuple[int, str]] = []
     for sent in _SENTENCE_SPLIT.split(body):
@@ -306,45 +313,47 @@ def _story_narration(story: dict, article_sentences: list[str] | None = None) ->
     parts: list[str] = [hook]
 
     if article_sentences:
-        parts.append("Okay, so here's the rundown.")
-        # Sprinkle conversational connectors between the fact sentences so a
-        # long block doesn't read like a wire dump. Deterministic by index.
+        parts.append("\nOkay, so here's the rundown.\n")
         connectors = [
             None, None,
-            "Now here's where it gets real.",
+            "\nNow here's where it gets real.\n",
             None,
-            "And it did not stop there, baby.",
+            "\nAnd it did not stop there, baby.\n",
             None, None,
-            "Stay with me, because there's more.",
+            "\nStay with me, because there's more.\n",
             None, None,
         ]
         for j, sent in enumerate(article_sentences[:10]):
             conn = connectors[j] if j < len(connectors) else None
             if conn:
                 parts.append(conn)
-            parts.append(sent)
+            # Strip any stray URLs from individual sentences
+            clean = re.sub(r"https?://\S+", "", sent).strip()
+            if clean:
+                parts.append(clean)
     elif summary:
-        parts.append(_truncate_words(summary, 80))
+        clean_summary = re.sub(r"https?://\S+", "", _truncate_words(summary, 80))
+        parts.append(clean_summary)
         parts.append(
-            "Now that's the short version — the wire copy was stingy today — "
-            "so we'll keep this one tight and let the source fill in the rest."
+            "\nNow that's the short version... the wire copy was stingy today... "
+            "so we'll keep this one tight and let the source fill in the rest.\n"
         )
 
-    parts.append("So why does this matter? Let me tell you.")
+    parts.append("\nSo why does this matter?\n")
     parts.append(LANE_WHY_LINES.get(lane, "This story matters to our community."))
 
     # Host analysis — lane-specific framing to add depth
     analysis = LANE_ANALYSIS_LINES.get(lane)
     if analysis:
-        parts.append(analysis)
+        parts.append("\n" + analysis)
 
     if source:
         parts.append(
-            f"That reporting comes from {source} — link's in the description, "
-            "go show them some love."
+            f"\nThat reporting comes from {source}... link's in the description, "
+            "go show them some love.\n"
         )
 
-    return " ".join(parts)
+    return "\n".join(parts)
 
 
 def build_roundup_script(

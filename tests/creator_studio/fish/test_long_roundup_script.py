@@ -99,3 +99,26 @@ def test_extract_key_sentences_filters_boilerplate():
     assert "newsletter" not in joined
     assert "cookies" not in joined
     assert any("grant" in s.lower() or "investment" in s.lower() for s in picked)
+
+
+def test_extract_key_sentences_strips_urls():
+    text = (
+        "The organization launched at https://example.com/donate today. "
+        "Visit www.example.org for more. Contact admin@example.com for info. "
+        "The grant will fund housing for Black trans elders in five major cities."
+    )
+    picked = lrs._extract_key_sentences(text, max_sentences=3)
+    joined = " ".join(picked)
+    assert "https://" not in joined
+    assert "www." not in joined
+    assert "@" not in joined
+
+
+def test_no_urls_in_narration():
+    """Narration must never contain URLs — TTS spells them out."""
+    script = _build()
+    for sec in script["sections"]:
+        narration = sec["narration"]
+        assert "http://" not in narration, f"URL in {sec['id']}"
+        assert "https://" not in narration, f"URL in {sec['id']}"
+        assert "www." not in narration, f"URL in {sec['id']}"
