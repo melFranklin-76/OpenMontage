@@ -46,14 +46,42 @@ def test_lane_voice_map_covers_all_lanes():
         assert reel_render.LANE_VOICE[lane].endswith(".onnx")
 
 
-def test_voice_for_lane_falls_back_to_default(monkeypatch, tmp_path):
-    """If the mapped voice isn't on disk, fall back to lessac."""
+def test_voice_for_lane_returns_edge_voice_when_available(monkeypatch):
+    """With Edge TTS available, _voice_for_lane returns a voice name string."""
+    monkeypatch.setattr(reel_render, "USE_EDGE_TTS", True)
+    result = reel_render._voice_for_lane("gay")
+    assert isinstance(result, str)
+    assert "Neural" in result
+
+
+def test_voice_for_lane_falls_back_to_piper(monkeypatch, tmp_path):
+    """Without Edge TTS, falls back to Piper model path."""
+    monkeypatch.setattr(reel_render, "USE_EDGE_TTS", False)
     monkeypatch.setattr(reel_render, "PIPER_MODEL_DIR", tmp_path)
     fallback = tmp_path / "en_US-lessac-medium.onnx"
     fallback.write_bytes(b"stub")
     monkeypatch.setattr(reel_render, "DEFAULT_PIPER_MODEL", fallback)
     result = reel_render._voice_for_lane("gay")
     assert result == fallback
+
+
+def test_clean_for_tts_dates():
+    assert "July 8, 2026" in reel_render._clean_for_tts("Filed on 7/8/2026 today")
+
+
+def test_clean_for_tts_slashes():
+    assert "lesbian and gay" in reel_render._clean_for_tts("lesbian/gay community")
+
+
+def test_clean_for_tts_urls():
+    result = reel_render._clean_for_tts("Visit https://example.com/path for more")
+    assert "https" not in result
+    assert "example" not in result
+
+
+def test_clean_for_tts_abbreviations():
+    assert "Governor" in reel_render._clean_for_tts("Gov. Smith signed the bill")
+    assert "percent" in reel_render._clean_for_tts("75% of respondents")
 
 
 def test_brand_and_music_constants():
