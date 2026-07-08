@@ -335,30 +335,37 @@ def render_reel(
 
     total = sum(seg_durations)
 
-    # 2. Concat all wavs into a single voiceover track,
-    #    padded by BRAND_LEAD/OUTRO of silence for the title/outro cards.
-    concat_list = tmp_dir / "concat.txt"
-    concat_list.write_text("".join(f"file '{w}'\n" for w in seg_wavs))
+    # 2. Concat all wavs via the concat FILTER (not demuxer). The demuxer
+    #    is picky about identical stream parameters across inputs even with
+    #    -c copy overridden; the filter decodes each input independently
+    #    into a uniform PCM stream and always works.
     voice_raw = tmp_dir / "voice_raw.wav"
-    # Re-encode to a uniform PCM format instead of stream-copying:
-    # different Piper voices can emit different sample rates (lessac/amy
-    # 22050 Hz, ryan-high 22050 Hz but could shift), and concat -c copy
-    # requires identical codecs / sample rates / channel layouts. Ubuntu
-    # CI ffmpeg is stricter than macOS about this and errors out. Re-encoding
-    # to 22050/mono is lossless-adjacent for Piper output and always works.
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-         "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le", str(voice_raw)],
-        check=True, capture_output=True,
+    concat_inputs: list[str] = []
+    for w in seg_wavs:
+        concat_inputs += ["-i", str(w)]
+    concat_streams = "".join(f"[{i}:a]" for i in range(len(seg_wavs)))
+    concat_filter = f"{concat_streams}concat=n={len(seg_wavs)}:v=0:a=1[out]"
+    proc = subprocess.run(
+        ["ffmpeg", "-y", *concat_inputs,
+         "-filter_complex", concat_filter,
+         "-map", "[out]",
+         "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le",
+         str(voice_raw)],
+        capture_output=True, text=True,
     )
+    if proc.returncode != 0:
+        sys.exit(f"[reel_render] voice concat failed:\n{proc.stderr[-2000:]}")
+
     voice_wav = tmp_dir / "voice.wav"
-    subprocess.run(
+    proc = subprocess.run(
         ["ffmpeg", "-y", "-i", str(voice_raw),
          "-af", f"adelay={int(BRAND_LEAD_SECONDS*1000)}|{int(BRAND_LEAD_SECONDS*1000)},"
                 f"apad=pad_dur={BRAND_OUTRO_SECONDS}",
          str(voice_wav)],
-        check=True, capture_output=True,
+        capture_output=True, text=True,
     )
+    if proc.returncode != 0:
+        sys.exit(f"[reel_render] voice pad failed:\n{proc.stderr[-2000:]}")
     total_padded = BRAND_LEAD_SECONDS + total + BRAND_OUTRO_SECONDS
 
     # 3. Pre-render each caption as a transparent PNG + brand cards
