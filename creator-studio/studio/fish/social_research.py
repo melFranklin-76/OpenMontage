@@ -42,7 +42,7 @@ from typing import Literal
 AGENT_REACH_BIN = Path.home() / ".agent-reach-venv" / "bin" / "agent-reach"
 LAST30_SKILL_DIR = Path.home() / ".claude" / "skills" / "last30days"
 
-DEFAULT_TOPIC = "LGBT LGBTQ gay lesbian bisexual transgender news"
+DEFAULT_TOPIC = "LGBT LGBTQ lesbian gay bisexual transgender news"
 
 # Subreddits with consistent LGBT news signal
 LGBT_SUBREDDITS = [
@@ -242,7 +242,7 @@ def fetch_twitter_stories(
 
 # ── Hacker News via public API ───────────────────────────────────────────────
 
-def fetch_hn_stories(query: str = "LGBT gay lesbian bisexual transgender", limit: int = 5) -> list[dict]:
+def fetch_hn_stories(query: str = "LGBT lesbian gay bisexual transgender", limit: int = 5) -> list[dict]:
     """Search Hacker News via Algolia public API — zero auth, zero cost."""
     import urllib.request
     import urllib.parse

@@ -59,7 +59,7 @@ INTRO_LINES_TEMPLATE = (
     "from across the community — from {lanes_summary}. "
     "Before we get into it, one ground rule: the ordering here reflects "
     "relevance scoring, not editorial preference. Every story on this list "
-    "made the cut because our filter — five lanes, gay, lesbian, bisexual, "
+    "made the cut because our filter — five lanes, lesbian, gay, bisexual, "
     "Black trans, and legacy — flagged it as worth your twenty-four minutes. "
     "Stay with me. Some of these you won't find on the front page, and that's "
     "exactly why we're here."
@@ -249,7 +249,7 @@ def _readable_date(iso: str) -> str:
 
 
 def _lanes_summary(stories: list[dict]) -> str:
-    """Human-readable summary like 'gay, lesbian, and Black trans lanes'."""
+    """Human-readable summary like 'lesbian, gay, and Black trans lanes'."""
     lanes = []
     seen: set[str] = set()
     for s in stories:
