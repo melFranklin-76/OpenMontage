@@ -1,0 +1,120 @@
+name: FISH Shorts Stagger
+
+# Publishes one Short every 2 hours from the previous night's daily-digest
+# artifact. The 8 PM CT roundup renders 10 vertical shorts; this workflow
+# drips them out across the following day for better algorithm reach.
+#
+# Hour (UTC) → rank mapping. Starts 8 AM CT (13:00 UTC) the morning after
+# the roundup, ends 2 AM CT.
+
+on:
+  schedule:
+    - cron: "0 13 * * *"   # 8 AM CT  → rank 1
+    - cron: "0 15 * * *"   # 10 AM CT → rank 2
+    - cron: "0 17 * * *"   # 12 PM CT → rank 3
+    - cron: "0 19 * * *"   # 2 PM CT  → rank 4
+    - cron: "0 21 * * *"   # 4 PM CT  → rank 5
+    - cron: "0 23 * * *"   # 6 PM CT  → rank 6
+    - cron: "0 3 * * *"    # 10 PM CT → rank 7
+    - cron: "0 5 * * *"    # 12 AM CT → rank 8
+    - cron: "0 7 * * *"    # 2 AM CT  → rank 9
+    - cron: "0 9 * * *"    # 4 AM CT  → rank 10
+  workflow_dispatch:
+    inputs:
+      rank:
+        description: "Story rank to publish (1-10)"
+        required: true
+        default: "1"
+
+jobs:
+  publish-short:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: creator-studio
+      YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Skip if no YouTube token
+        if: env.YOUTUBE_TOKEN_JSON == ''
+        run: |
+          echo "No YOUTUBE_TOKEN_JSON secret; nothing to do."
+          exit 0
+
+      - name: Determine rank from schedule hour
+        id: rank
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RANK="${{ github.event.inputs.rank }}"
+          else
+            HOUR=$(date -u +%H)
+            case "$HOUR" in
+              13) RANK=1 ;;
+              15) RANK=2 ;;
+              17) RANK=3 ;;
+              19) RANK=4 ;;
+              21) RANK=5 ;;
+              23) RANK=6 ;;
+              03) RANK=7 ;;
+              05) RANK=8 ;;
+              07) RANK=9 ;;
+              09) RANK=10 ;;
+              *) echo "No rank mapped for hour $HOUR; exiting."; exit 0 ;;
+            esac
+          fi
+          echo "rank=$RANK" >> "$GITHUB_OUTPUT"
+          echo "Publishing rank $RANK"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download latest daily artifact
+        run: |
+          # Find the most recent successful run of the daily digest workflow
+          RUN_ID=$(gh run list \
+            --workflow fish-daily-digest.yml \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ]; then
+            echo "No successful daily run found; nothing to publish."
+            exit 0
+          fi
+          echo "Downloading artifact from run $RUN_ID"
+          gh run download "$RUN_ID" -D artifact
+          ls -la artifact/*/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish the short
+        run: |
+          RANK="${{ steps.rank.outputs.rank }}"
+          DIR=$(ls -d artifact/*/ | head -1)
+          SCRIPT="${DIR}fish-script-rank${RANK}.json"
+          VIDEO="${DIR}fish-reel-rank${RANK}.mp4"
+          if [ ! -f "$SCRIPT" ] || [ ! -f "$VIDEO" ]; then
+            echo "Rank ${RANK} script or video missing in artifact; skipping."
+            exit 0
+          fi
+          python -m pip install --quiet google-auth google-auth-oauthlib google-api-python-client
+          python -m studio.fish.youtube_publisher \
+            --script "$SCRIPT" \
+            --video "$VIDEO" \
+            --format short \
+            --privacy public \
+            --output "fish-youtube-short-rank${RANK}.json"
+          cat "fish-youtube-short-rank${RANK}.json"
+
+      - name: Upload publish receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-short-publish-${{ github.run_id }}
+          path: fish-youtube-short-rank*.json
+          retention-days: 14
+          if-no-files-found: ignore
