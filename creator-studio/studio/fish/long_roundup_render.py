@@ -275,6 +275,18 @@ def render_roundup(
             print(f"[long_roundup_render] hero prep failed for rank {rank}: {exc}",
                   file=sys.stderr)
 
+    # Fetch a generic b-roll clip for intro/outro/cold_open so they aren't
+    # flat color screens.
+    generic_broll: Path | None = None
+    from .broll import fetch_broll_for_story as _fetch_broll, DEFAULT_SEARCH_TERM
+    _generic = _fetch_broll(
+        title="", lane="legacy",
+        out_path=tmp_dir / "broll_generic.mp4",
+        orientation="landscape",
+    )
+    if _generic:
+        generic_broll = _generic
+
     # 4. Pre-render every section's visual layer:
     #    - Chapter titles + intro/outro: full-frame lane-tinted cards
     #    - Story bodies: hero image if available else lane-tinted, + lower-third caption
@@ -344,7 +356,9 @@ def render_roundup(
                 return seg_durations[i]
         return 0.0
 
-    broll_input_idx: dict[int, Path] = {}
+    # Per-section b-roll input index: each section that uses a video clip
+    # gets its own -stream_loop input so ffmpeg can trim independently.
+    section_broll_idx: dict[int, int] = {}
 
     for vis, dur in zip(section_visuals, seg_durations):
         ffmpeg_inputs += ["-loop", "1", "-t", f"{dur:.3f}", "-i", str(vis)]
@@ -354,13 +368,28 @@ def render_roundup(
         ffmpeg_inputs += ["-loop", "1", "-t", f"{_body_duration(rank):.3f}", "-i", str(hero)]
         hero_input_idx[rank] = input_idx
         input_idx += 1
-    for rank, clip in broll_mp4s.items():
-        # Loop the clip so short stock footage covers a long narration block
-        ffmpeg_inputs += [
-            "-stream_loop", "-1", "-t", f"{_body_duration(rank):.3f}", "-i", str(clip),
-        ]
-        broll_input_idx[rank] = input_idx
-        input_idx += 1
+
+    # Add a separate b-roll input for every section that needs one.
+    # This lets ffmpeg trim each independently.
+    for i, sec in enumerate(sections):
+        sid = sec["id"]
+        rank = sec.get("story_rank")
+        dur = seg_durations[i]
+        clip_path: Path | None = None
+
+        if (sid.endswith("_body") or sid.endswith("_title")) and rank in broll_mp4s:
+            clip_path = broll_mp4s[rank]
+        elif sid.endswith("_transition") and generic_broll:
+            clip_path = generic_broll
+        elif sid in ("cold_open", "intro", "outro") and generic_broll:
+            clip_path = generic_broll
+
+        if clip_path:
+            ffmpeg_inputs += [
+                "-stream_loop", "-1", "-t", f"{dur:.3f}", "-i", str(clip_path),
+            ]
+            section_broll_idx[i] = input_idx
+            input_idx += 1
 
     voice_input_idx = input_idx
     ffmpeg_inputs += ["-i", str(voice_wav)]
@@ -385,21 +414,21 @@ def render_roundup(
         vis_in = visual_input_idx[i]
         seg_label = f"vseg{i}"
 
-        if sid.endswith("_body") and rank in broll_input_idx:
-            clip_in = broll_input_idx[rank]
-            # Motion b-roll: cover-crop to frame, mute, caption on top
+        if i in section_broll_idx:
+            clip_in = section_broll_idx[i]
+            # Darken more for title/transition/intro cards (text legibility)
+            bright = "-0.15" if sid.endswith("_body") else "-0.35"
             filter_parts.append(
                 f"[{clip_in}:v]scale={WIDTH}:{HEIGHT}:"
                 f"force_original_aspect_ratio=increase,"
                 f"crop={WIDTH}:{HEIGHT},fps={FPS},"
-                f"eq=brightness=-0.15:saturation=0.9,"
+                f"eq=brightness={bright}:saturation=0.9,"
                 f"trim=duration={dur:.3f},setpts=PTS-STARTPTS[clip{i}];"
                 f"[clip{i}][{vis_in}:v]overlay=0:0:format=auto[{seg_label}]"
             )
         elif sid.endswith("_body") and rank in hero_input_idx:
             hero_in = hero_input_idx[rank]
             frames = int(dur * FPS)
-            # Ken Burns zoom on hero + caption overlay
             filter_parts.append(
                 f"[{hero_in}:v]scale={WIDTH*2}x{HEIGHT*2},"
                 f"zoompan=z='min(zoom+0.0005,1.10)':d={frames}:"
@@ -408,7 +437,6 @@ def render_roundup(
                 f"[hero{i}][{vis_in}:v]overlay=0:0:format=auto[{seg_label}]"
             )
         else:
-            # Non-body sections: just format the visual as a video track
             filter_parts.append(
                 f"[{vis_in}:v]scale={WIDTH}x{HEIGHT},fps={FPS},"
                 f"format=yuv420p[{seg_label}]"
