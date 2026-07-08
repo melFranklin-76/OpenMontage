@@ -74,6 +74,36 @@ DEFAULT_SOURCES: tuple[FeedSource, ...] = (
         url="https://www.metroweekly.com/feed/",
         category="lgbtq-news",
     ),
+    FeedSource(
+        name="PinkNews",
+        url="https://www.pinknews.co.uk/feed/",
+        category="lgbtq-news",
+    ),
+    FeedSource(
+        name="Erin in the Morning",
+        url="https://www.erininthemorning.com/feed",
+        category="trans-news",
+    ),
+    FeedSource(
+        name="Queerty",
+        url="https://www.queerty.com/feed",
+        category="lgbtq-culture",
+    ),
+    FeedSource(
+        name="Los Angeles Blade",
+        url="https://www.losangelesblade.com/feed/",
+        category="lgbtq-news",
+    ),
+    FeedSource(
+        name="Gay City News",
+        url="https://www.gaycitynews.com/feed/",
+        category="lgbtq-news",
+    ),
+    FeedSource(
+        name="Prism Reports",
+        url="https://prismreports.org/feed/",
+        category="black-trans",
+    ),
 )
 
 
