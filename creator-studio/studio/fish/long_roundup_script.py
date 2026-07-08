@@ -249,7 +249,7 @@ def _readable_date(iso: str) -> str:
 
 
 def _lanes_summary(stories: list[dict]) -> str:
-    """Human-readable summary like 'gay, lesbian, and Black trans lanes'."""
+    """Human-readable summary like 'lesbian, gay, and Black trans lanes'."""
     lanes = []
     seen: set[str] = set()
     for s in stories:
