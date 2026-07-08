@@ -30,6 +30,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from .broll import fetch_broll_for_story
 from .reel_render import (
     _fetch_hero_image,
     _piper_tts,
@@ -239,14 +240,27 @@ def render_roundup(
     if proc.returncode != 0:
         sys.exit(f"[long_roundup_render] voice concat failed:\n{proc.stderr[-2000:]}")
 
-    # 3. Pre-fetch hero images per story rank so overlays are ready
+    # 3. Pre-fetch per-story visuals. Ladder: Pexels b-roll clip → article
+    #    hero image → lane color card (handled downstream by absence).
+    broll_mp4s: dict[int, Path] = {}
     hero_pngs: dict[int, Path] = {}
     for rank, story in stories.items():
+        lane = story.get("lane") or "legacy"
+        bg = LANE_BG.get(lane, DEFAULT_BG)
+
+        clip = fetch_broll_for_story(
+            title=story.get("title", ""),
+            lane=lane,
+            out_path=tmp_dir / f"broll_{rank:02d}.mp4",
+            orientation="landscape",
+        )
+        if clip:
+            broll_mp4s[rank] = clip
+            continue    # motion beats stills; skip hero fetch
+
         url = story.get("url", "")
         if not url:
             continue
-        lane = story.get("lane") or "legacy"
-        bg = LANE_BG.get(lane, DEFAULT_BG)
         raw = tmp_dir / f"hero_{rank:02d}_raw.bin"
         got = _fetch_hero_image(url, raw)
         if not got:
@@ -322,20 +336,28 @@ def render_roundup(
     visual_input_idx: list[int] = []
     hero_input_idx: dict[int, int] = {}
 
+    def _body_duration(rank: int) -> float:
+        for i, sec in enumerate(sections):
+            if sec.get("id", "").endswith("_body") and sec.get("story_rank") == rank:
+                return seg_durations[i]
+        return 0.0
+
+    broll_input_idx: dict[int, Path] = {}
+
     for vis, dur in zip(section_visuals, seg_durations):
         ffmpeg_inputs += ["-loop", "1", "-t", f"{dur:.3f}", "-i", str(vis)]
         visual_input_idx.append(input_idx)
         input_idx += 1
     for rank, hero in hero_pngs.items():
-        # Duration of a body section = seg_durations at same idx; we'll size
-        # the hero input to the max body section duration to be safe.
-        body_dur = 0.0
-        for i, sec in enumerate(sections):
-            if sec.get("id", "").endswith("_body") and sec.get("story_rank") == rank:
-                body_dur = seg_durations[i]
-                break
-        ffmpeg_inputs += ["-loop", "1", "-t", f"{body_dur:.3f}", "-i", str(hero)]
+        ffmpeg_inputs += ["-loop", "1", "-t", f"{_body_duration(rank):.3f}", "-i", str(hero)]
         hero_input_idx[rank] = input_idx
+        input_idx += 1
+    for rank, clip in broll_mp4s.items():
+        # Loop the clip so short stock footage covers a long narration block
+        ffmpeg_inputs += [
+            "-stream_loop", "-1", "-t", f"{_body_duration(rank):.3f}", "-i", str(clip),
+        ]
+        broll_input_idx[rank] = input_idx
         input_idx += 1
 
     voice_input_idx = input_idx
@@ -361,7 +383,18 @@ def render_roundup(
         vis_in = visual_input_idx[i]
         seg_label = f"vseg{i}"
 
-        if sid.endswith("_body") and rank in hero_input_idx:
+        if sid.endswith("_body") and rank in broll_input_idx:
+            clip_in = broll_input_idx[rank]
+            # Motion b-roll: cover-crop to frame, mute, caption on top
+            filter_parts.append(
+                f"[{clip_in}:v]scale={WIDTH}:{HEIGHT}:"
+                f"force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT},fps={FPS},"
+                f"eq=brightness=-0.15:saturation=0.9,"
+                f"trim=duration={dur:.3f},setpts=PTS-STARTPTS[clip{i}];"
+                f"[clip{i}][{vis_in}:v]overlay=0:0:format=auto[{seg_label}]"
+            )
+        elif sid.endswith("_body") and rank in hero_input_idx:
             hero_in = hero_input_idx[rank]
             frames = int(dur * FPS)
             # Ken Burns zoom on hero + caption overlay
@@ -420,6 +453,7 @@ def render_roundup(
         "sections": len(sections),
         "story_count": script.get("story_count"),
         "hero_images_used": len(hero_pngs),
+        "broll_clips_used": len(broll_mp4s),
         "music_bed": music_input_idx is not None,
     }
 

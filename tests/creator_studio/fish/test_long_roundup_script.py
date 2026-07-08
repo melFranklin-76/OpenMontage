@@ -74,6 +74,17 @@ def test_raises_on_empty_digest():
         lrs.build_roundup_script({"items": []})
 
 
+def test_no_hashtags_spoken_anywhere():
+    """Narration must never contain '#' — hashtags live in descriptions only."""
+    script = _build()
+    for sec in script["sections"]:
+        assert "#" not in sec["narration"], f"hashtag spoken in {sec['id']}"
+
+
+def test_transition_pool_has_variety():
+    assert len(lrs.TRANSITION_LINES) >= 12
+
+
 def test_extract_key_sentences_filters_boilerplate():
     text = (
         "Subscribe to our newsletter for more content every day of the week. "

@@ -59,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: creator-studio
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
     steps:
       - name: Check out repo

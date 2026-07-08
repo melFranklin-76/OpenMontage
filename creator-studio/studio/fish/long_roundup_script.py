@@ -47,83 +47,107 @@ SHOW_NAME = "What's the LGBT, Fish?"
 TARGET_STORY_COUNT = 10
 WORDS_PER_SECOND = 2.5      # ~150 WPM Piper speaking rate
 
+# Tone note: the host register is conversational Black queer commentary —
+# direct address, campy energy, opinionated asides — in the spirit of
+# creators like Funky Dineva. Facts stay straight; delivery has flavor.
+# Keep it monetization-safe: no slurs, no defamation, no unverified tea.
+
 COLD_OPEN_LINES = [
-    "This is What's the LGBT, Fish? — your daily roundup of the queer news that "
-    "actually matters. Ten stories, no fluff, no both-sides frame on our own "
-    "existence. Just what happened, who it happened to, and why you should know "
-    "before you scroll away from the next viral rage-bait post about us.",
+    "Hey y'all, hey! It is your girl, and this is What's the LGBT, Fish? — "
+    "the only roundup that loves you enough to tell you the truth. "
+    "{count_word} stories today, honey. No fluff, no filler, and absolutely no "
+    "both-sides-ing our own existence. Just what happened, who it happened "
+    "to, and why you need to know before somebody's cousin misquotes it in "
+    "a group chat.",
 ]
 
 INTRO_LINES_TEMPLATE = (
-    "I'm your host, and today, {date_readable}, we're covering ten stories "
-    "from across the community — from {lanes_summary}. "
-    "Before we get into it, one ground rule: the ordering here reflects "
-    "relevance scoring, not editorial preference. Every story on this list "
-    "made the cut because our filter — five lanes, lesbian, gay, bisexual, "
-    "Black trans, and legacy — flagged it as worth your twenty-four minutes. "
-    "Stay with me. Some of these you won't find on the front page, and that's "
-    "exactly why we're here."
+    "Alright, let's get into it. Today is {date_readable}, and baby, the "
+    "news did NOT take a day off — we've got {count_word} stories from {lanes_summary}. "
+    "Now one ground rule before we start, because y'all know I keep it "
+    "honest: the order of these stories comes from our relevance scoring, "
+    "not from me playing favorites. Five lanes — lesbian, gay, bisexual, "
+    "Black trans, and legacy — and every single story earned its seat at "
+    "this table. Some of this you will not find on anybody's front page. "
+    "That's not an accident, and that's exactly why we're here. So pour "
+    "your little beverage and let's talk about it."
 )
 
 LANE_ANALYSIS_LINES = {
     "gay": (
-        "The gay community sees itself in stories like this because visibility "
-        "isn't the destination, it's the daily maintenance. We hold the frame "
-        "or we lose it."
+        "And listen — visibility is not a trophy you win once and put on a "
+        "shelf, it's rent, and it is due every single day. We hold the frame "
+        "or somebody else writes the caption for us. That's just facts."
     ),
     "lesbian": (
-        "Lesbian stories get filed under 'women' or 'LGBT' and lose their "
-        "specificity in the process. Naming who this is about is part of the work."
+        "Now can we talk about how lesbian stories always get filed under "
+        "'women' or shoved into the big LGBT folder until the specifics "
+        "disappear? Not on this show, baby. We say who it's about, by name, "
+        "with our whole chest."
     ),
     "bisexual": (
-        "Bi stories are the ones that get flattened into gay or straight "
-        "depending on who the reporter thinks the audience is. This one gets "
-        "the full name."
+        "And you already know how this goes — the minute a bi person makes "
+        "the news, the headlines flatten them into gay or straight depending "
+        "on who's standing next to them. Not here. We call it what it is, "
+        "because bi erasure is played out and we are not participating."
     ),
     "Black trans": (
-        "Black trans stories carry the highest stakes in our community and the "
-        "lowest coverage numbers. That gap is why this show exists in the first "
-        "place."
+        "Now hold on, because this is the part where I need y'all to lean "
+        "in. Black trans stories carry the highest stakes in our whole "
+        "community and get the least coverage — and that gap? That gap is "
+        "the entire reason this show exists. We lead with our sisters and "
+        "brothers, period."
     ),
     "legacy": (
-        "Legacy stories are our institutional memory. We tell them not out of "
-        "nostalgia but because every current fight has a receipt, and someone "
-        "in the past already wrote the playbook."
+        "See, this is why you keep your elders close and your history "
+        "closer. This is not nostalgia, sweetheart — every fight we're in "
+        "right now has a receipt, and somebody who came before us already "
+        "wrote the playbook. Say their names, learn the moves."
     ),
 }
 
 
 LANE_TITLE_TEMPLATE = {
-    "gay":         "Story {n} of 10 — from the gay lane",
-    "lesbian":     "Story {n} of 10 — from the lesbian lane",
-    "bisexual":    "Story {n} of 10 — from the bi visibility lane",
-    "Black trans": "Story {n} of 10 — centering Black trans voices",
-    "legacy":      "Story {n} of 10 — from the legacy lane",
+    "gay":         "Story {n} of {total} — from the gay lane",
+    "lesbian":     "Story {n} of {total} — from the lesbian lane",
+    "bisexual":    "Story {n} of {total} — from the bi visibility lane",
+    "Black trans": "Story {n} of {total} — centering Black trans voices",
+    "legacy":      "Story {n} of {total} — from the legacy lane",
+}
+
+NUMBER_WORDS = {
+    1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five",
+    6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten",
 }
 
 TRANSITION_LINES = [
-    "Which brings us to our next story.",
-    "Moving on.",
-    "Next up.",
-    "Meanwhile, elsewhere in the community.",
-    "Which takes us to story number {next_n}.",
-    "Speaking of stories that deserve more attention.",
-    "Here's another one you should know about.",
-    "Let's keep going.",
-    "That was story {n}. Here's story {next_n}.",
+    "Okay, moving right along, because the tea does not steep itself.",
+    "Now hold that thought, because this next one? Whew.",
+    "Alright, deep breath, y'all — story {next_n}, let's go.",
+    "Meanwhile, in a whole other corner of the community...",
+    "And just when you thought the day was done, baby, it was not.",
+    "Speaking of stories that deserve way more attention than they got.",
+    "Now this next one, I need y'all to really hear me on.",
+    "Okay okay okay — next story, because we have things to discuss.",
+    "That was story {n}. Story {next_n} is where it gets interesting.",
+    "Let me sip some water, because this next one took me OUT.",
+    "Y'all still with me? Good, because we are not done.",
+    "Now switch gears with me for a second.",
+    "And the news just kept on newsing, honey.",
+    "This next story? I have thoughts. Let's get into them.",
 ]
 
 OUTRO_LINES_TEMPLATE = (
-    "That's ten stories, {total_min} minutes, one show. If any of these hit "
-    "you, drop it in the comments — the algorithm rewards conversation, and we "
-    "reward each other. Every source we cited is linked in the description, "
-    "along with the timestamp for each chapter, in case you want to send just "
-    "the piece someone in your life needs. Chapters are your friend — this "
-    "show is meant to be picked apart and shared, not consumed in one sitting. "
-    "Follow for tomorrow's roundup — same time, same host, same lanes. Share "
-    "this with someone who needs to hear that our news doesn't have to fit in "
-    "a Twitter screenshot to matter. Until tomorrow: keep asking, what's the "
-    "LGBT, Fish? {hashtag_line}"
+    "And THAT, my loves, is {count_word_lower} stories in {total_min} minutes — you are "
+    "officially caught up, and nobody at brunch can tell you nothing. If "
+    "any of these stories hit you somewhere real, get in those comments and "
+    "talk to me — the algorithm rewards conversation and I reward good tea. "
+    "Every single source is linked down in the description, with chapter "
+    "timestamps, so if somebody in your life needs exactly ONE of these "
+    "stories, you can send them straight to it. Clip it, share it, forward "
+    "it to your messiest group chat. Follow for tomorrow's roundup — same "
+    "time, same energy, same five lanes. And until then, you know what to "
+    "do: keep asking... what's the LGBT, Fish? Okay bye!"
 )
 
 
@@ -282,16 +306,31 @@ def _story_narration(story: dict, article_sentences: list[str] | None = None) ->
     parts: list[str] = [hook]
 
     if article_sentences:
-        parts.append("Here's what we know.")
-        parts.extend(article_sentences[:10])
+        parts.append("Okay, so here's the rundown.")
+        # Sprinkle conversational connectors between the fact sentences so a
+        # long block doesn't read like a wire dump. Deterministic by index.
+        connectors = [
+            None, None,
+            "Now here's where it gets real.",
+            None,
+            "And it did not stop there, baby.",
+            None, None,
+            "Stay with me, because there's more.",
+            None, None,
+        ]
+        for j, sent in enumerate(article_sentences[:10]):
+            conn = connectors[j] if j < len(connectors) else None
+            if conn:
+                parts.append(conn)
+            parts.append(sent)
     elif summary:
         parts.append(_truncate_words(summary, 80))
         parts.append(
-            "We're pulling this from a short syndicated summary, so we'll keep "
-            "the picture tight and let the source do the heavy lifting."
+            "Now that's the short version — the wire copy was stingy today — "
+            "so we'll keep this one tight and let the source fill in the rest."
         )
 
-    parts.append("Here's why this matters.")
+    parts.append("So why does this matter? Let me tell you.")
     parts.append(LANE_WHY_LINES.get(lane, "This story matters to our community."))
 
     # Host analysis — lane-specific framing to add depth
@@ -300,7 +339,10 @@ def _story_narration(story: dict, article_sentences: list[str] | None = None) ->
         parts.append(analysis)
 
     if source:
-        parts.append(f"That reporting from {source}. Link is in the description.")
+        parts.append(
+            f"That reporting comes from {source} — link's in the description, "
+            "go show them some love."
+        )
 
     return " ".join(parts)
 
@@ -317,11 +359,13 @@ def build_roundup_script(
 
     digest_date = digest.get("date", date.today().isoformat())
     date_readable = _readable_date(digest_date)
+    n_stories = len(items)
+    count_word = NUMBER_WORDS.get(n_stories, str(n_stories))
 
     sections: list[dict] = []
 
     # Cold open (no chapter marker — it's pre-intro hook)
-    cold_open = COLD_OPEN_LINES[0]
+    cold_open = COLD_OPEN_LINES[0].format(count_word=count_word)
     sections.append({
         "id": "cold_open",
         "narration": cold_open,
@@ -334,6 +378,7 @@ def build_roundup_script(
     intro = INTRO_LINES_TEMPLATE.format(
         date_readable=date_readable,
         lanes_summary=_lanes_summary(items),
+        count_word=count_word.lower(),
     )
     sections.append({
         "id": "intro",
@@ -347,7 +392,9 @@ def build_roundup_script(
     # Story blocks
     for i, story in enumerate(items, start=1):
         lane = story.get("matched_lane") or story.get("lane") or ""
-        title_line = LANE_TITLE_TEMPLATE.get(lane, "Story {n} of 10").format(n=i)
+        title_line = LANE_TITLE_TEMPLATE.get(
+            lane, "Story {n} of {total}"
+        ).format(n=i, total=n_stories)
 
         sections.append({
             "id": f"ch{i}_title",
@@ -399,9 +446,11 @@ def build_roundup_script(
     # Outro
     total_est = sum(s["duration_seconds"] for s in sections)
     total_min = round(total_est / 60)
-    tags = BASE_HASHTAGS + [t for lane_set in LANE_HASHTAGS.values() for t in lane_set]
-    hashtag_line = " ".join(sorted(set(tags))[:6])
-    outro = OUTRO_LINES_TEMPLATE.format(total_min=total_min, hashtag_line=hashtag_line)
+    # Hashtags are never spoken — they live in script["hashtags"] and end up
+    # in the YouTube/IG description, not the narration.
+    outro = OUTRO_LINES_TEMPLATE.format(
+        total_min=total_min, count_word_lower=count_word.lower(),
+    )
     sections.append({
         "id": "outro",
         "narration": outro,
