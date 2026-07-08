@@ -392,25 +392,49 @@ def render_reel(
         bg_hex=bg,
     )
 
-    # 3.5 Try to fetch a hero image from the story URL for Ken Burns background
+    # 3.5 Background ladder: Pexels b-roll clip → article hero image w/ Ken
+    #     Burns → lane color card. Motion wins when available.
+    from .broll import fetch_broll_for_story
+
     story_url = (
         script.get("source_attribution", {}).get("url")
         or script.get("story_url", "")
     )
+    broll_clip = fetch_broll_for_story(
+        title=script.get("topic", ""),
+        lane=lane,
+        out_path=tmp_dir / "broll_bg.mp4",
+        orientation="portrait",
+    )
     hero_bg = tmp_dir / "hero_bg.png"
-    hero_src = _fetch_hero_image(story_url, tmp_dir / "hero_raw.bin") if story_url else None
     have_hero = False
-    if hero_src:
-        try:
-            _prepare_hero_bg(hero_src, hero_bg, bg)
-            have_hero = True
-        except Exception as exc:  # noqa: BLE001
-            print(f"[reel_render] hero prep failed, using solid bg: {exc}", file=sys.stderr)
+    if not broll_clip:
+        hero_src = _fetch_hero_image(story_url, tmp_dir / "hero_raw.bin") if story_url else None
+        if hero_src:
+            try:
+                _prepare_hero_bg(hero_src, hero_bg, bg)
+                have_hero = True
+            except Exception as exc:  # noqa: BLE001
+                print(f"[reel_render] hero prep failed, using solid bg: {exc}",
+                      file=sys.stderr)
 
     # 4. Compose: bg + voice + PNG overlays, each on its own time window
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    if have_hero:
+    if broll_clip:
+        # Loop the stock clip over the whole reel, cover-crop, slight darken
+        inputs: list[str] = [
+            "-stream_loop", "-1", "-t", f"{total_padded:.3f}", "-i", str(broll_clip),
+            "-i", str(voice_wav),
+        ]
+        bg_filter_prefix = (
+            f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={WIDTH}:{HEIGHT},fps={FPS},"
+            f"eq=brightness=-0.15:saturation=0.9,"
+            f"trim=duration={total_padded:.3f},setpts=PTS-STARTPTS[bg];"
+        )
+        bg_label = "bg"
+    elif have_hero:
         # Ken Burns: slow zoom-in over the entire duration
         frames = int(total_padded * FPS)
         zoompan = (
@@ -419,7 +443,7 @@ def render_reel(
             f"x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':"
             f"s={WIDTH}x{HEIGHT}:fps={FPS}"
         )
-        inputs: list[str] = [
+        inputs = [
             "-loop", "1", "-t", f"{total_padded:.3f}", "-i", str(hero_bg),
             "-i", str(voice_wav),
         ]
@@ -443,9 +467,7 @@ def render_reel(
     music_input_idx = None
     if music_path and music_path.exists():
         inputs += ["-stream_loop", "-1", "-i", str(music_path)]
-        music_input_idx = 2 + len(extra_pngs) + 1  # +1 for voice, +1 for music
-    for png in caption_pngs:
-        inputs += ["-i", str(png)]
+        music_input_idx = 2 + len(extra_pngs)   # 0=bg, 1=voice, then pngs
 
     # Build overlay chain — layer 0 = lead card (0..BRAND_LEAD),
     # layers 1..N = section captions (each on its own window, offset by BRAND_LEAD),
@@ -525,6 +547,7 @@ def render_reel(
         "fps": FPS,
         "voice_model": voice.name,
         "hero_image": have_hero,
+        "broll_clip": broll_clip is not None,
         "brand_cards": True,
         "music_bed": music_input_idx is not None,
     }

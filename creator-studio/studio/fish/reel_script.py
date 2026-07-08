@@ -31,11 +31,27 @@ LANE_HASHTAGS = {
 }
 
 LANE_WHY_LINES = {
-    "legacy": "Legacy stories like this one keep queer history from being forgotten.",
-    "gay": "Stories like this shape what life looks like for gay people everywhere.",
-    "lesbian": "Lesbian stories like this one deserve the spotlight, not a footnote.",
-    "bisexual": "Bi stories rarely make the front page. This one should.",
-    "Black trans": "Black trans stories lead this show, because they lead the movement.",
+    "legacy": (
+        "Because baby, if we don't tell our history, somebody else will tell "
+        "it wrong — and queer history is too rich to leave to the wrong narrator."
+    ),
+    "gay": (
+        "Because stories like this shape what everyday life looks like for gay "
+        "folks everywhere, and we deserve to hear it straight — well, you know "
+        "what I mean."
+    ),
+    "lesbian": (
+        "Because lesbian stories deserve the whole spotlight, honey, not a "
+        "footnote at the bottom of somebody else's article."
+    ),
+    "bisexual": (
+        "Because bi stories almost never make the front page — and this one "
+        "earned its spot, so we're giving it its flowers."
+    ),
+    "Black trans": (
+        "Because Black trans stories lead this show, period — they lead the "
+        "movement, and we follow the leaders here."
+    ),
 }
 
 
@@ -80,8 +96,8 @@ def build_reel_script(handoff: dict) -> dict:
         {
             "id": "cta",
             "narration": (
-                f"Full story from {source} — link in bio. "
-                "Follow for the LGBT news that actually matters."
+                f"Full story from {source} — link in bio, baby. "
+                "Follow for the LGBT news that actually matters. Okay bye!"
             ),
             "duration_seconds": 8,
             "visual_hint": "Source attribution card, follow prompt",
