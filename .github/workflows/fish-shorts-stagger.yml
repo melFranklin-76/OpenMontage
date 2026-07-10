@@ -97,6 +97,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --quiet \
+            jsonschema pyyaml feedparser pillow \
+            google-auth google-auth-oauthlib google-api-python-client
+
       - name: Publish the short to YouTube
         if: env.YOUTUBE_TOKEN_JSON != ''
         run: |
@@ -108,7 +115,6 @@ jobs:
             echo "Rank ${RANK} script or video missing in artifact; skipping YouTube."
             exit 0
           fi
-          python -m pip install --quiet google-auth google-auth-oauthlib google-api-python-client
           python -m studio.fish.youtube_publisher \
             --script "$SCRIPT" \
             --video "$VIDEO" \
