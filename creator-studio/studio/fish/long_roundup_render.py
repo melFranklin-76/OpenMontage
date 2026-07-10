@@ -152,6 +152,69 @@ def _render_horizontal_card(title: str, subtitle: str, out_png: Path, bg_hex: st
     img.save(out_png)
 
 
+def _render_horizontal_title_overlay(title: str, subtitle: str, out_png: Path) -> None:
+    """Transparent title card: centered text on a scrim, no full-frame fill.
+
+    Used for cold_open / intro / outro / chapter-title / transition sections
+    when b-roll motion is available behind them, so the opening plays over
+    moving footage instead of sitting on a static solid color for seconds.
+    Only a soft rounded scrim sits behind the text for legibility; the rest
+    of the frame stays transparent so the clip shows through.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    def _font(size: int):
+        for cand in (
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ):
+            if Path(cand).exists():
+                try:
+                    return ImageFont.truetype(cand, size)
+                except OSError:
+                    pass
+        return ImageFont.load_default()
+
+    title_font = _font(TITLE_FONTSIZE)
+    sub_font = _font(52)
+
+    lines = _wrap_words(title, chars_per_line=32)
+    line_h = 118
+    block_h = len(lines) * line_h + (72 if subtitle else 0)
+    y0 = (HEIGHT - block_h) // 2
+
+    # Rounded scrim behind the whole text block
+    widest = max(
+        [draw.textbbox((0, 0), ln, font=title_font)[2] for ln in lines]
+        + ([draw.textbbox((0, 0), subtitle, font=sub_font)[2]] if subtitle else [0]),
+        default=0,
+    )
+    pad_x, pad_y = 80, 60
+    box_w = min(widest + pad_x * 2, WIDTH - 80)
+    box_x = (WIDTH - box_w) // 2
+    draw.rounded_rectangle(
+        [(box_x, y0 - pad_y), (box_x + box_w, y0 + block_h + pad_y)],
+        radius=32, fill=(0, 0, 0, 140),
+    )
+
+    for i, ln in enumerate(lines):
+        tw = draw.textbbox((0, 0), ln, font=title_font)[2]
+        draw.text(((WIDTH - tw) // 2, y0 + i * line_h),
+                  ln, fill=(255, 255, 255, 255), font=title_font)
+
+    if subtitle:
+        sw = draw.textbbox((0, 0), subtitle, font=sub_font)[2]
+        draw.text(((WIDTH - sw) // 2, y0 + len(lines) * line_h + 16),
+                  subtitle, fill=(255, 255, 255, 225), font=sub_font)
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_png)
+
+
 def _prepare_horizontal_hero(img_src: Path, out_png: Path, bg_hex: str) -> None:
     """Cover-crop hero image to 1920x1080 with lane tint + darken for caption legibility."""
     from PIL import Image, ImageEnhance, ImageFilter
@@ -247,7 +310,7 @@ def render_roundup(
     broll_mp4s: dict[int, Path] = {}
     hero_pngs: dict[int, Path] = {}
     for rank, story in stories.items():
-        lane = story.get("lane") or "legacy"
+        lane = story.get("lane") or ""
         bg = LANE_BG.get(lane, DEFAULT_BG)
 
         clip = fetch_broll_for_story(
@@ -275,12 +338,15 @@ def render_roundup(
             print(f"[long_roundup_render] hero prep failed for rank {rank}: {exc}",
                   file=sys.stderr)
 
-    # Fetch a generic b-roll clip for intro/outro/cold_open so they aren't
-    # flat color screens.
+    # Fetch a b-roll clip for the intro/outro/cold_open so they aren't flat
+    # color screens. Seed it from the lead story's headline so the opening
+    # footage is relevant to today's top story rather than generic stock.
     generic_broll: Path | None = None
-    from .broll import fetch_broll_for_story as _fetch_broll, DEFAULT_SEARCH_TERM
-    _generic = _fetch_broll(
-        title="", lane="legacy",
+    top_story_title = ""
+    if script.get("stories"):
+        top_story_title = script["stories"][0].get("title", "")
+    _generic = fetch_broll_for_story(
+        title=top_story_title, lane="",
         out_path=tmp_dir / "broll_generic.mp4",
         orientation="landscape",
     )
@@ -288,46 +354,66 @@ def render_roundup(
         generic_broll = _generic
 
     # 4. Pre-render every section's visual layer:
-    #    - Chapter titles + intro/outro: full-frame lane-tinted cards
+    #    - Chapter titles + intro/outro: title text. Over b-roll it's a
+    #      transparent overlay so the motion shows; without b-roll it falls
+    #      back to a full-frame lane-tinted card so the text stays legible.
     #    - Story bodies: hero image if available else lane-tinted, + lower-third caption
-    #    - Transitions: solid brand ident with tag
+    #    - Transitions: brand ident with tag
     section_visuals: list[Path] = []
-    default_bg_hex = LANE_BG.get("legacy", DEFAULT_BG)
+    default_bg_hex = DEFAULT_BG
+
+    def _section_has_broll(sid: str, rank: int | None) -> bool:
+        """Will this section be composited over a moving b-roll clip?
+
+        Mirrors the routing in the compose step below so the visual layer is
+        rendered transparent (over motion) or opaque (standalone) to match.
+        """
+        if (sid.endswith("_body") or sid.endswith("_title")) and rank in broll_mp4s:
+            return True
+        if sid.endswith("_transition") and generic_broll is not None:
+            return True
+        if sid in ("cold_open", "intro", "outro") and generic_broll is not None:
+            return True
+        return False
 
     for i, sec in enumerate(sections):
         sid = sec["id"]
-        lane = sec.get("lane") or "legacy"
+        lane = sec.get("lane") or ""
         bg_hex = LANE_BG.get(lane, default_bg_hex)
         vis = tmp_dir / f"vis_{i:03d}_{sid}.png"
+        rank = sec.get("story_rank")
 
+        # Body sections are always a transparent lower-third over hero/b-roll.
+        if sid.endswith("_body"):
+            _render_horizontal_caption(sec.get("narration", ""), vis)
+            section_visuals.append(vis)
+            continue
+
+        # Compute title + subtitle for the card-style sections.
         if sid == "cold_open":
-            _render_horizontal_card(
-                "What's the LGBT, Fish?", "Daily LGBT news roundup", vis, bg_hex,
-            )
+            card_title, card_sub = "What's the LGBT, Fish?", "Daily LGBT news roundup"
         elif sid == "intro":
-            _render_horizontal_card(
-                script.get("stories", [{}])[0].get("title", "Today's roundup")[:80],
-                f"Today's top {script.get('story_count', 10)} stories", vis, bg_hex,
-            )
+            card_title = script.get("stories", [{}])[0].get("title", "Today's roundup")[:80]
+            card_sub = f"Today's top {script.get('story_count', 10)} stories"
         elif sid == "outro":
             hashtags = " ".join(script.get("hashtags", [])[:5])
-            _render_horizontal_card(
-                hashtags or "#whatsthelgbtfish",
-                "Follow for daily LGBT news", vis, bg_hex,
-            )
+            card_title = hashtags or "#whatsthelgbtfish"
+            card_sub = "Follow for daily LGBT news"
         elif sid.endswith("_title"):
-            rank = sec.get("story_rank")
             title = stories.get(rank, {}).get("title", sec.get("narration", ""))
-            _render_horizontal_card(
-                title[:80], f"Story {rank} of {script.get('story_count', 10)}",
-                vis, bg_hex,
-            )
-        elif sid.endswith("_body"):
-            _render_horizontal_caption(sec.get("narration", ""), vis)
+            card_title = title[:80]
+            card_sub = f"Story {rank} of {script.get('story_count', 10)}"
         elif sid.endswith("_transition"):
-            _render_horizontal_card("...", "What's the LGBT, Fish?", vis, bg_hex)
+            card_title, card_sub = "...", "What's the LGBT, Fish?"
         else:
             _render_horizontal_caption(sec.get("narration", ""), vis)
+            section_visuals.append(vis)
+            continue
+
+        if _section_has_broll(sid, rank):
+            _render_horizontal_title_overlay(card_title, card_sub, vis)
+        else:
+            _render_horizontal_card(card_title, card_sub, vis, bg_hex)
 
         section_visuals.append(vis)
 

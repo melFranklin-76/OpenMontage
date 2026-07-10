@@ -30,9 +30,14 @@ def test_wrap_words_handles_single_long_word():
 
 
 def test_lane_bg_contains_all_lanes():
-    for lane in ("gay", "lesbian", "bisexual", "Black trans", "legacy"):
+    for lane in ("gay", "lesbian", "bisexual", "Black trans"):
         assert lane in reel_render.LANE_BG
         assert reel_render.LANE_BG[lane].startswith("0x")
+
+
+def test_no_legacy_lane_anywhere():
+    for mapping in (reel_render.LANE_BG, reel_render.LANE_VOICE, reel_render.EDGE_LANE_VOICE):
+        assert "legacy" not in mapping
 
 
 def test_default_piper_model_path_shape():
@@ -41,7 +46,7 @@ def test_default_piper_model_path_shape():
 
 
 def test_lane_voice_map_covers_all_lanes():
-    for lane in ("gay", "lesbian", "bisexual", "Black trans", "legacy"):
+    for lane in ("gay", "lesbian", "bisexual", "Black trans"):
         assert lane in reel_render.LANE_VOICE
         assert reel_render.LANE_VOICE[lane].endswith(".onnx")
 

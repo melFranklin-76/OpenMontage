@@ -49,16 +49,14 @@ EDGE_LANE_VOICE = {
     "lesbian":     "en-US-AvaNeural",
     "bisexual":    "en-US-EmmaNeural",
     "Black trans": "en-US-AvaNeural",
-    "legacy":      "en-US-AriaNeural",
 }
 
-# Legacy Piper voices (offline fallback)
+# Offline Piper voices (fallback when Edge TTS is unavailable)
 LANE_VOICE = {
     "gay":         "en_US-ryan-high.onnx",
     "lesbian":     "en_US-amy-medium.onnx",
     "bisexual":    "en_US-amy-medium.onnx",
     "Black trans": "en_US-amy-medium.onnx",
-    "legacy":      "en_US-lessac-medium.onnx",
 }
 
 
@@ -170,6 +168,64 @@ def _render_brand_card(title: str, subtitle: str, out_png: Path, bg_hex: str) ->
     img.save(out_png)
 
 
+def _render_brand_overlay(title: str, subtitle: str, out_png: Path) -> None:
+    """Transparent brand card: centered text on a scrim, no full-frame fill.
+
+    Used for the opening title beat when b-roll motion is available, so the
+    reel opens over moving footage instead of a static solid color card.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    def _font(size: int):
+        for cand in (
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ):
+            if Path(cand).exists():
+                try:
+                    return ImageFont.truetype(cand, size)
+                except OSError:
+                    pass
+        return ImageFont.load_default()
+
+    title_font = _font(96)
+    sub_font = _font(48)
+
+    lines = _wrap_words(title, chars_per_line=18)
+    line_h = 108
+    block_h = len(lines) * line_h + (72 if subtitle else 0)
+    y0 = (HEIGHT - block_h) // 2 - 100
+
+    widest = max(
+        [draw.textbbox((0, 0), ln, font=title_font)[2] for ln in lines]
+        + ([draw.textbbox((0, 0), subtitle, font=sub_font)[2]] if subtitle else [0]),
+        default=0,
+    )
+    pad_x, pad_y = 60, 50
+    box_w = min(widest + pad_x * 2, WIDTH - 60)
+    box_x = (WIDTH - box_w) // 2
+    draw.rounded_rectangle(
+        [(box_x, y0 - pad_y), (box_x + box_w, y0 + block_h + pad_y)],
+        radius=28, fill=(0, 0, 0, 140),
+    )
+
+    for i, ln in enumerate(lines):
+        tw = draw.textbbox((0, 0), ln, font=title_font)[2]
+        draw.text(((WIDTH - tw) // 2, y0 + i * line_h),
+                  ln, fill=(255, 255, 255, 255), font=title_font)
+    if subtitle:
+        sw = draw.textbbox((0, 0), subtitle, font=sub_font)[2]
+        draw.text(((WIDTH - sw) // 2, y0 + len(lines) * line_h + 16),
+                  subtitle, fill=(255, 255, 255, 225), font=sub_font)
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_png)
+
+
 def _voice_for_lane(lane: str) -> Path | str:
     """Return the voice for a lane — Edge TTS name or Piper model path."""
     if USE_EDGE_TTS:
@@ -190,7 +246,6 @@ LANE_BG = {
     "lesbian":     "0x3e1a2a",   # deep magenta
     "bisexual":    "0x2a1a3e",   # deep purple
     "Black trans": "0x1a3e2a",   # deep green
-    "legacy":      "0x3e2a1a",   # deep amber
 }
 DEFAULT_BG = "0x111111"
 
@@ -470,25 +525,10 @@ def render_reel(
         _render_caption_png(sec["narration"], png)
         caption_pngs.append(png)
 
-    # Brand lead card + hashtag outro card (full-frame opaque overlays)
-    lead_card = tmp_dir / "brand_lead.png"
-    _render_brand_card(
-        title=script.get("topic", "")[:80],
-        subtitle="What's the LGBT, Fish?",
-        out_png=lead_card,
-        bg_hex=bg,
-    )
-    hashtags = " ".join(script.get("hashtags", [])[:4])
-    outro_card = tmp_dir / "brand_outro.png"
-    _render_brand_card(
-        title=hashtags or "#whatsthelgbtfish",
-        subtitle="Follow for daily LGBT news",
-        out_png=outro_card,
-        bg_hex=bg,
-    )
-
     # 3.5 Background ladder: Pexels b-roll clip → article hero image w/ Ken
-    #     Burns → lane color card. Motion wins when available.
+    #     Burns → lane color card. Motion wins when available. Fetch this
+    #     first so the opening title beat can play over the motion instead of
+    #     sitting on a static solid color card.
     from .broll import fetch_broll_for_story
 
     story_url = (
@@ -512,6 +552,33 @@ def render_reel(
             except Exception as exc:  # noqa: BLE001
                 print(f"[reel_render] hero prep failed, using solid bg: {exc}",
                       file=sys.stderr)
+
+    # Brand lead card + hashtag outro card. Over motion (b-roll or hero) the
+    # opening is a transparent overlay so footage shows through; on a solid
+    # background it stays a full-frame card so the text is legible.
+    over_motion = bool(broll_clip) or have_hero
+    lead_card = tmp_dir / "brand_lead.png"
+    if over_motion:
+        _render_brand_overlay(
+            title=script.get("topic", "")[:80],
+            subtitle="What's the LGBT, Fish?",
+            out_png=lead_card,
+        )
+    else:
+        _render_brand_card(
+            title=script.get("topic", "")[:80],
+            subtitle="What's the LGBT, Fish?",
+            out_png=lead_card,
+            bg_hex=bg,
+        )
+    hashtags = " ".join(script.get("hashtags", [])[:4])
+    outro_card = tmp_dir / "brand_outro.png"
+    _render_brand_card(
+        title=hashtags or "#whatsthelgbtfish",
+        subtitle="Follow for daily LGBT news",
+        out_png=outro_card,
+        bg_hex=bg,
+    )
 
     # 4. Compose: bg + voice + PNG overlays, each on its own time window
     output.parent.mkdir(parents=True, exist_ok=True)
