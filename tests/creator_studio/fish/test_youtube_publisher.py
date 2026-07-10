@@ -7,8 +7,8 @@ from studio.fish import youtube_publisher as yt
 
 SCRIPT = {
     "topic": "Marsha P. Johnson: Stonewall hero",
-    "lane": "legacy",
-    "hashtags": ["#lgbtq", "#lgbthistory"],
+    "lane": "gay",
+    "hashtags": ["#lgbtq", "#gay"],
     "source_attribution": {
         "name": "The Advocate",
         "url": "https://example.com/story",
@@ -45,7 +45,7 @@ def test_lane_tags_merged_in():
         ("gay", "gay"),
         ("lesbian", "lesbian"),
         ("Black trans", "Black trans"),
-        ("legacy", "lgbthistory"),
+        ("bisexual", "bivisibility"),
     ]:
         script = dict(SCRIPT, lane=lane)
         meta = yt.build_metadata(script)
@@ -68,7 +68,7 @@ ROUNDUP = {
     "story_count": 3,
     "stories": [
         {"rank": 1, "title": "Story one", "source": "SrcA",
-         "url": "https://a.example/1", "lane": "legacy"},
+         "url": "https://a.example/1", "lane": "gay"},
         {"rank": 2, "title": "Story two", "source": "SrcB",
          "url": "https://b.example/2", "lane": "Black trans"},
         {"rank": 3, "title": "Story three", "source": "SrcC",

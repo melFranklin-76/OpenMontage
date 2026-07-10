@@ -7,7 +7,7 @@ from studio.fish import instagram_publisher as ig
 
 SCRIPT = {
     "topic": "Marsha P. Johnson: Stonewall hero",
-    "lane": "legacy",
+    "lane": "gay",
     "source_attribution": {
         "name": "The Advocate",
         "url": "https://example.com/story",
@@ -20,7 +20,7 @@ def test_caption_contains_topic_source_and_lane_hashtags():
     assert SCRIPT["topic"] in caption
     assert "The Advocate" in caption
     assert "https://example.com/story" in caption
-    assert "#lgbthistory" in caption
+    assert "#gay" in caption
     assert len(caption) <= 2200
 
 
@@ -29,7 +29,7 @@ def test_caption_long_topic_truncates_to_instagram_limit():
     caption = ig.build_caption(script)
     assert len(caption) <= 2200
     assert "..." in caption
-    assert "#lgbthistory" in caption
+    assert "#gay" in caption
 
 
 def test_graph_api_version_is_pinned():

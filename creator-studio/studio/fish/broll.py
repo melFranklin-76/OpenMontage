@@ -35,25 +35,32 @@ _STOPWORDS = {
     "why", "how", "what", "who", "when", "where", "just", "still", "more",
 }
 
-# Lane-flavored fallback/booster search terms
+# Lane-flavored terms — used ONLY as a fallback query when the story-specific
+# query returns no footage (see fetch_broll_for_story). They are deliberately
+# NOT mixed into the primary query: appending "gay pride rainbow crowd" to
+# every search made Pexels return generic pride footage instead of clips that
+# match the actual story.
 LANE_SEARCH_TERMS = {
     "lesbian":     "lesbian couple pride",
     "gay":         "gay pride rainbow crowd",
     "bisexual":    "bisexual pride flag",
     "Black trans": "Black community rally support",
-    "legacy":      "archival protest march",
 }
 DEFAULT_SEARCH_TERM = "pride rainbow flag community"
 
 
 def build_query(title: str, lane: str = "") -> str:
-    """Deterministic search query from a story title + lane booster."""
+    """Deterministic, story-relevant search query from a story title.
+
+    Keeps the first few content words of the headline so the footage matches
+    the story itself. The ``lane`` argument is accepted for signature
+    compatibility but intentionally not appended — the lane term is reserved
+    for the fallback query in ``fetch_broll_for_story``.
+    """
     words = re.findall(r"[A-Za-z][A-Za-z'-]+", title.lower())
     content = [w for w in words if w not in _STOPWORDS and len(w) > 2]
-    head = " ".join(content[:4])
-    lane_term = LANE_SEARCH_TERMS.get(lane, "")
-    query = f"{head} {lane_term}".strip()
-    return query or DEFAULT_SEARCH_TERM
+    head = " ".join(content[:5])
+    return head or DEFAULT_SEARCH_TERM
 
 
 def _api_key() -> str:

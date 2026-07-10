@@ -19,7 +19,6 @@ from .daily_digest import build_daily_candidates
 SHOW_NAME = "What's the LGBT, Fish?"
 
 LANE_ANGLES = {
-    "legacy": "Honoring an LGBTQ movement elder whose story shaped our history",
     "gay": "Why this matters to gay audiences right now",
     "lesbian": "The lesbian community story behind the headline",
     "bisexual": "A bi visibility moment worth 45 seconds",

@@ -23,7 +23,6 @@ TARGET_DURATION_SECONDS = 45
 BASE_HASHTAGS = ["#lgbtq", "#lgbtnews", "#queer", "#whatsthelgbtfish"]
 
 LANE_HASHTAGS = {
-    "legacy": ["#lgbthistory", "#queerhistory", "#stonewall", "#pride"],
     "gay": ["#gay", "#gaynews", "#pride"],
     "lesbian": ["#lesbian", "#wlw", "#sapphic"],
     "bisexual": ["#bisexual", "#bivisibility", "#bipride"],
@@ -31,10 +30,6 @@ LANE_HASHTAGS = {
 }
 
 LANE_WHY_LINES = {
-    "legacy": (
-        "Because baby, if we don't tell our history, somebody else will tell "
-        "it wrong — and queer history is too rich to leave to the wrong narrator."
-    ),
     "gay": (
         "Because stories like this shape what everyday life looks like for gay "
         "folks everywhere, and we deserve to hear it straight — well, you know "

@@ -21,8 +21,8 @@ DIGEST = {
             "relevance_score": 1.0 - i * 0.05,
         }
         for i, lane in enumerate(
-            ["legacy", "gay", "lesbian", "bisexual", "Black trans",
-             "gay", "lesbian", "gay", "Black trans", "legacy"],
+            ["Black trans", "gay", "lesbian", "bisexual", "Black trans",
+             "gay", "lesbian", "gay", "Black trans", "bisexual"],
             start=1,
         )
     ],
@@ -66,7 +66,7 @@ def test_stories_metadata_preserved():
     script = _build()
     assert script["story_count"] == 10
     assert script["stories"][0]["rank"] == 1
-    assert script["stories"][0]["lane"] == "legacy"
+    assert script["stories"][0]["lane"] == "Black trans"
 
 
 def test_raises_on_empty_digest():

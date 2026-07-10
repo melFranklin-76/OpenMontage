@@ -66,8 +66,8 @@ INTRO_LINES_TEMPLATE = (
     "news did NOT take a day off — we've got {count_word} stories from {lanes_summary}. "
     "Now one ground rule before we start, because y'all know I keep it "
     "honest: the order of these stories comes from our relevance scoring, "
-    "not from me playing favorites. Five lanes — lesbian, gay, bisexual, "
-    "Black trans, and legacy — and every single story earned its seat at "
+    "not from me playing favorites. Four lanes — lesbian, gay, bisexual, "
+    "and Black trans — and every single story earned its seat at "
     "this table. Some of this you will not find on anybody's front page. "
     "That's not an accident, and that's exactly why we're here. So pour "
     "your little beverage and let's talk about it."
@@ -98,12 +98,6 @@ LANE_ANALYSIS_LINES = {
         "the entire reason this show exists. We lead with our sisters and "
         "brothers, period."
     ),
-    "legacy": (
-        "See, this is why you keep your elders close and your history "
-        "closer. This is not nostalgia, sweetheart — every fight we're in "
-        "right now has a receipt, and somebody who came before us already "
-        "wrote the playbook. Say their names, learn the moves."
-    ),
 }
 
 
@@ -112,7 +106,6 @@ LANE_TITLE_TEMPLATE = {
     "lesbian":     "Story {n} of {total} — from the lesbian lane",
     "bisexual":    "Story {n} of {total} — from the bi visibility lane",
     "Black trans": "Story {n} of {total} — centering Black trans voices",
-    "legacy":      "Story {n} of {total} — from the legacy lane",
 }
 
 NUMBER_WORDS = {
@@ -146,7 +139,7 @@ OUTRO_LINES_TEMPLATE = (
     "timestamps, so if somebody in your life needs exactly ONE of these "
     "stories, you can send them straight to it. Clip it, share it, forward "
     "it to your messiest group chat. Follow for tomorrow's roundup — same "
-    "time, same energy, same five lanes. And until then, you know what to "
+    "time, same energy, same four lanes. And until then, you know what to "
     "do: keep asking... what's the LGBT, Fish? Okay bye!"
 )
 
