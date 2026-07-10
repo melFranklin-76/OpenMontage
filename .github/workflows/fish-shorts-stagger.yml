@@ -80,20 +80,43 @@ jobs:
 
       - name: Download latest daily artifact
         run: |
-          # Find the most recent successful run of the daily digest workflow
-          RUN_ID=$(gh run list \
+          set -euo pipefail
+
+          # Find the most recent successful daily digest run that actually
+          # has downloadable artifacts. Push/test-only runs can succeed
+          # without producing fish-daily-* artifacts.
+          RUN_IDS=$(gh run list \
             --workflow fish-daily-digest.yml \
             --status success \
-            --limit 1 \
+            --limit 10 \
             --json databaseId \
-            --jq '.[0].databaseId')
-          if [ -z "$RUN_ID" ]; then
+            --jq '.[].databaseId')
+
+          if [ -z "$RUN_IDS" ]; then
             echo "No successful daily run found; nothing to publish."
             exit 0
           fi
-          echo "Downloading artifact from run $RUN_ID"
-          gh run download "$RUN_ID" -D artifact
-          ls -la artifact/*/
+
+          mkdir -p artifact
+          FOUND=0
+          for RUN_ID in $RUN_IDS; do
+            echo "Trying daily artifact from run $RUN_ID"
+            rm -rf artifact/*
+            if gh run download "$RUN_ID" -D artifact; then
+              if find artifact -type f | grep -q .; then
+                FOUND=1
+                echo "Downloaded artifact from run $RUN_ID"
+                break
+              fi
+            fi
+          done
+
+          if [ "$FOUND" -ne 1 ]; then
+            echo "No downloadable daily artifacts found in recent successful runs; nothing to publish."
+            exit 0
+          fi
+
+          find artifact -maxdepth 3 -type f -print
         env:
           GH_TOKEN: ${{ github.token }}
 
