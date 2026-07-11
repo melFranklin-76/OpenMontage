@@ -21,8 +21,8 @@ DIGEST = {
             "relevance_score": 1.0 - i * 0.05,
         }
         for i, lane in enumerate(
-            ["Black trans", "gay", "lesbian", "bisexual", "Black trans",
-             "gay", "lesbian", "gay", "Black trans", "bisexual"],
+            ["trans", "gay", "lesbian", "bisexual", "trans",
+             "gay", "lesbian", "gay", "trans", "bisexual"],
             start=1,
         )
     ],
@@ -66,7 +66,7 @@ def test_stories_metadata_preserved():
     script = _build()
     assert script["story_count"] == 10
     assert script["stories"][0]["rank"] == 1
-    assert script["stories"][0]["lane"] == "Black trans"
+    assert script["stories"][0]["lane"] == "trans"
 
 
 def test_raises_on_empty_digest():
@@ -89,7 +89,7 @@ def test_extract_key_sentences_filters_boilerplate():
     text = (
         "Subscribe to our newsletter for more content every day of the week. "
         "The organization announced a $2 million grant on March 3, 2026 to fund "
-        "housing for Black trans elders across five cities. "
+        "housing for trans elders across five cities. "
         "Accept cookies to continue reading this article on our website today. "
         '"This is the largest single investment in our history," said the director '
         "of the foundation during the press conference on Tuesday afternoon."
@@ -105,7 +105,7 @@ def test_extract_key_sentences_strips_urls():
     text = (
         "The organization launched at https://example.com/donate today. "
         "Visit www.example.org for more. Contact admin@example.com for info. "
-        "The grant will fund housing for Black trans elders in five major cities."
+        "The grant will fund housing for trans elders in five major cities."
     )
     picked = lrs._extract_key_sentences(text, max_sentences=3)
     joined = " ".join(picked)
