@@ -430,7 +430,7 @@ def build_roundup_script(
             "story_url": story.get("url", ""),
             "story_source": story.get("source", ""),
             "lane": lane,
-            "visual_hint": "Hero image with Ken Burns, caption band lower-third",
+            "visual_hint": "Hero image with Ken Burns motion; no burned narration captions",
         })
 
         # Transition between stories (skip after last)
