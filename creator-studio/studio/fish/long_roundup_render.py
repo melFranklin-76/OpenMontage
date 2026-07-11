@@ -61,6 +61,12 @@ CAPTION_Y_FRAC = 0.75      # Lower-third at 75%
 
 # ── caption/card overrides tuned for 16:9 ─────────────────────────────────────
 
+def _render_transparent_overlay(out_png: Path) -> None:
+    """Render a fully transparent 1920x1080 overlay for clean long-form body sections."""
+    img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    img.save(out_png)
+
+
 def _render_horizontal_caption(text: str, out_png: Path) -> None:
     """Wide lower-third caption strip, PIL-based."""
     from PIL import Image, ImageDraw, ImageFont
@@ -357,7 +363,7 @@ def render_roundup(
     #    - Chapter titles + intro/outro: title text. Over b-roll it's a
     #      transparent overlay so the motion shows; without b-roll it falls
     #      back to a full-frame lane-tinted card so the text stays legible.
-    #    - Story bodies: hero image if available else lane-tinted, + lower-third caption
+    #    - Story bodies: hero image/b-roll only; no burned narration caption box
     #    - Transitions: brand ident with tag
     section_visuals: list[Path] = []
     default_bg_hex = DEFAULT_BG
@@ -383,9 +389,10 @@ def render_roundup(
         vis = tmp_dir / f"vis_{i:03d}_{sid}.png"
         rank = sec.get("story_rank")
 
-        # Body sections are always a transparent lower-third over hero/b-roll.
+        # Body sections should not burn narration captions into long-form video.
+        # Use a transparent visual layer over hero/b-roll instead.
         if sid.endswith("_body"):
-            _render_horizontal_caption(sec.get("narration", ""), vis)
+            _render_transparent_overlay(vis)
             section_visuals.append(vis)
             continue
 
@@ -488,7 +495,7 @@ def render_roundup(
         input_idx += 1
 
     # Build per-section video: if it's a body section with a hero, overlay
-    # the caption strip on top of a Ken Burns hero; otherwise just scale/pad
+    # a transparent layer on top of a Ken Burns hero; otherwise just scale/pad
     # the visual as-is.
     filter_parts: list[str] = []
     seg_labels: list[str] = []
