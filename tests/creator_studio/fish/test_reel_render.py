@@ -30,7 +30,7 @@ def test_wrap_words_handles_single_long_word():
 
 
 def test_lane_bg_contains_all_lanes():
-    for lane in ("gay", "lesbian", "bisexual", "Black trans"):
+    for lane in ("gay", "lesbian", "bisexual", "trans"):
         assert lane in reel_render.LANE_BG
         assert reel_render.LANE_BG[lane].startswith("0x")
 
@@ -46,7 +46,7 @@ def test_default_piper_model_path_shape():
 
 
 def test_lane_voice_map_covers_all_lanes():
-    for lane in ("gay", "lesbian", "bisexual", "Black trans"):
+    for lane in ("gay", "lesbian", "bisexual", "trans"):
         assert lane in reel_render.LANE_VOICE
         assert reel_render.LANE_VOICE[lane].endswith(".onnx")
 

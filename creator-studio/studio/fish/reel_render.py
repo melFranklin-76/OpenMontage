@@ -42,13 +42,13 @@ try:
 except ImportError:
     USE_EDGE_TTS = False
 
-DEFAULT_EDGE_VOICE = "en-US-AvaNeural"
+DEFAULT_EDGE_VOICE = "en-US-BrianNeural"
 
 EDGE_LANE_VOICE = {
-    "gay":         "en-US-AndrewNeural",
-    "lesbian":     "en-US-AvaNeural",
-    "bisexual":    "en-US-EmmaNeural",
-    "Black trans": "en-US-AvaNeural",
+    "gay":         "en-US-BrianNeural",
+    "lesbian":     "en-US-BrianNeural",
+    "bisexual":    "en-US-BrianNeural",
+    "trans": "en-US-BrianNeural",
 }
 
 # Offline Piper voices (fallback when Edge TTS is unavailable)
@@ -56,7 +56,7 @@ LANE_VOICE = {
     "gay":         "en_US-ryan-high.onnx",
     "lesbian":     "en_US-amy-medium.onnx",
     "bisexual":    "en_US-amy-medium.onnx",
-    "Black trans": "en_US-amy-medium.onnx",
+    "trans": "en_US-amy-medium.onnx",
 }
 
 
@@ -245,7 +245,7 @@ LANE_BG = {
     "gay":         "0x1a1a3e",   # deep blue
     "lesbian":     "0x3e1a2a",   # deep magenta
     "bisexual":    "0x2a1a3e",   # deep purple
-    "Black trans": "0x1a3e2a",   # deep green
+    "trans": "0x1a3e2a",   # deep green
 }
 DEFAULT_BG = "0x111111"
 

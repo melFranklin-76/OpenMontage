@@ -47,7 +47,7 @@ SHOW_NAME = "What's the LGBT, Fish?"
 TARGET_STORY_COUNT = 10
 WORDS_PER_SECOND = 2.5      # ~150 WPM Piper speaking rate
 
-# Tone note: the host register is conversational Black queer commentary —
+# Tone note: the host register is gay male queer-news commentary —
 # direct address, campy energy, opinionated asides — in the spirit of
 # creators like Funky Dineva. Facts stay straight; delivery has flavor.
 # Keep it monetization-safe: no slurs, no defamation, no unverified tea.
@@ -67,7 +67,7 @@ INTRO_LINES_TEMPLATE = (
     "Now one ground rule before we start, because y'all know I keep it "
     "honest: the order of these stories comes from our relevance scoring, "
     "not from me playing favorites. Four lanes — lesbian, gay, bisexual, "
-    "and Black trans — and every single story earned its seat at "
+    "and trans — and every single story earned its seat at "
     "this table. Some of this you will not find on anybody's front page. "
     "That's not an accident, and that's exactly why we're here. So pour "
     "your little beverage and let's talk about it."
@@ -91,9 +91,9 @@ LANE_ANALYSIS_LINES = {
         "on who's standing next to them. Not here. We call it what it is, "
         "because bi erasure is played out and we are not participating."
     ),
-    "Black trans": (
+    "trans": (
         "Now hold on, because this is the part where I need y'all to lean "
-        "in. Black trans stories carry the highest stakes in our whole "
+        "in. Trans stories can carry some of the highest stakes in our whole "
         "community and get the least coverage — and that gap? That gap is "
         "the entire reason this show exists. We lead with our sisters and "
         "brothers, period."
@@ -105,7 +105,7 @@ LANE_TITLE_TEMPLATE = {
     "gay":         "Story {n} of {total} — from the gay lane",
     "lesbian":     "Story {n} of {total} — from the lesbian lane",
     "bisexual":    "Story {n} of {total} — from the bi visibility lane",
-    "Black trans": "Story {n} of {total} — centering Black trans voices",
+    "trans": "Story {n} of {total} — centering trans voices",
 }
 
 NUMBER_WORDS = {
@@ -273,7 +273,7 @@ def _readable_date(iso: str) -> str:
 
 
 def _lanes_summary(stories: list[dict]) -> str:
-    """Human-readable summary like 'lesbian, gay, and Black trans lanes'."""
+    """Human-readable summary like 'lesbian, gay, and trans lanes'."""
     lanes = []
     seen: set[str] = set()
     for s in stories:
