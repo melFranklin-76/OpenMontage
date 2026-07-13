@@ -413,7 +413,7 @@ def render_roundup(
         elif sid.endswith("_transition"):
             card_title, card_sub = "...", "What's the LGBT, Fish?"
         else:
-            _render_horizontal_caption(sec.get("narration", ""), vis)
+            _render_transparent_overlay(vis)
             section_visuals.append(vis)
             continue
 
