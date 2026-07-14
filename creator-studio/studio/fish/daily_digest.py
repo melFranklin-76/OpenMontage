@@ -80,6 +80,11 @@ def main() -> int:
         default="LGBT LGBTQ lesbian gay bisexual transgender news",
         help="Search query for web/Twitter/HN social sources",
     )
+    parser.add_argument(
+        "--creator-watch",
+        action="store_true",
+        help="Boost stories overlapping watched creators' latest episode topics",
+    )
     args = parser.parse_args()
 
     if args.social_only:
@@ -94,6 +99,10 @@ def main() -> int:
             items = items + fetch_social_stories(topic=args.social_topic)
 
     digest = build_daily_candidates(items)
+
+    if args.creator_watch:
+        from .creator_watch import boost_candidates, creator_topic_signals
+        digest = boost_candidates(digest, creator_topic_signals())
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
