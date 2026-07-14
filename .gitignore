@@ -88,3 +88,6 @@ remotion-composer/public/demo-props/caption-burn-*
 
 # FISH approval queue (local review state)
 creator-studio/out/fish/queue/
+
+# Local run outputs (regenerable)
+/out/
