@@ -52,8 +52,29 @@ def test_topic_query_returns_empty_when_no_subject_matches():
 
 
 def test_lane_search_terms_cover_the_four_lanes():
-    assert set(broll.LANE_SEARCH_TERMS) == {"gay", "lesbian", "bisexual", "Black trans"}
+    assert set(broll.LANE_SEARCH_TERMS) == {"gay", "lesbian", "bisexual", "trans"}
     assert "legacy" not in broll.LANE_SEARCH_TERMS
+
+
+def test_mentions_public_person_detects_named_people():
+    assert broll.mentions_public_person("Laverne Cox honored at awards gala")
+    assert broll.mentions_public_person("Pete Buttigieg responds to the ruling")
+
+
+def test_mentions_public_person_ignores_institutions_and_places():
+    """Capitalized bigrams that are orgs/places must not read as people."""
+    for title in (
+        "Supreme Court hears marriage case",
+        "White House issues new guidance",
+        "New York council reverses book ban",
+        "Trevor Project reports record demand",
+        "Pride Month kicks off nationwide",
+    ):
+        assert not broll.mentions_public_person(title), title
+
+
+def test_mentions_public_person_false_for_plain_headline():
+    assert not broll.mentions_public_person("Lesbian author banned from library")
 
 
 def test_search_broll_returns_none_without_key(monkeypatch):

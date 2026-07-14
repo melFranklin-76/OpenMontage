@@ -44,7 +44,7 @@ LANE_SEARCH_TERMS = {
     "lesbian":     "lesbian couple pride",
     "gay":         "gay pride rainbow crowd",
     "bisexual":    "bisexual pride flag",
-    "Black trans": "Black community rally support",
+    "trans": "trans rights rally support",
 }
 DEFAULT_SEARCH_TERM = "pride rainbow flag community"
 
@@ -105,6 +105,45 @@ def topic_query(title: str) -> str:
         if any(kw in low for kw in keywords):
             return visual
     return ""
+
+
+# Capitalized words that make a Capitalized-Bigram an institution, place, or
+# event rather than a person — "Supreme Court", "White House", "New York",
+# "Trevor Project", "Pride Month".
+_NON_PERSON_WORDS = {
+    "court", "house", "state", "states", "city", "county", "university",
+    "college", "school", "department", "project", "foundation", "campaign",
+    "center", "centre", "institute", "association", "society", "church",
+    "committee", "council", "board", "senate", "congress", "parliament",
+    "america", "american", "pride", "month", "day", "week", "festival",
+    "awards", "award", "act", "bill", "law", "york", "angeles", "francisco",
+    "carolina", "virginia", "dakota", "jersey", "mexico", "hampshire",
+    "island", "texas", "florida", "georgia", "ohio", "michigan", "orleans",
+    "united", "national", "international", "world", "global", "supreme",
+    "white", "high", "federal", "republican", "republicans", "democrat",
+    "democrats", "democratic", "netflix", "disney", "target", "walmart",
+}
+
+_PERSON_RE = re.compile(r"\b([A-Z][a-z]{1,15})\s+([A-Z][a-z'’-]{1,20})\b")
+
+
+def mentions_public_person(title: str) -> bool:
+    """True if the headline looks like it's about a named public person.
+
+    Stock libraries carry no footage of specific people, so for these stories
+    the article's own hero image — which is nearly always a photo of that very
+    person — beats any generic clip we could search for. The renderers use this
+    to put the hero image ahead of stock b-roll in the visual ladder.
+
+    A false positive is a safe failure: we fall back to the article's own
+    image, which is relevant to the story by construction.
+    """
+    for match in _PERSON_RE.finditer(title):
+        first, last = match.group(1).lower(), match.group(2).lower()
+        if first in _NON_PERSON_WORDS or last in _NON_PERSON_WORDS:
+            continue
+        return True
+    return False
 
 
 def build_query(title: str, lane: str = "") -> str:

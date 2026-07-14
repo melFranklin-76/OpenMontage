@@ -15,7 +15,7 @@ DIGEST = {
             "source": "TransGriot",
             "url": "https://example.com/1",
             "published_at": "2026-07-06T08:00:00-05:00",
-            "matched_lane": "Black trans",
+            "matched_lane": "trans",
             "matched_terms": ["black trans"],
             "summary": "Community safety and health resources.",
             "relevance_score": 1.0,
@@ -58,7 +58,7 @@ def test_build_research_handoff_grounds_seed_in_story() -> None:
     handoff = build_research_handoff(candidate, DIGEST["date"])
 
     assert handoff["topic"] == candidate["title"]
-    assert handoff["lane"] == "Black trans"
+    assert handoff["lane"] == "trans"
     assert handoff["story"]["url"] == "https://example.com/1"
 
     seed = handoff["research_seed"]

@@ -24,7 +24,7 @@ def test_build_daily_candidates_filters_and_scores() -> None:
 
     assert digest["show"] == "What's the LGBT, Fish?"
     assert len(digest["items"]) == 1
-    assert digest["items"][0]["matched_lane"] == "Black trans"
+    assert digest["items"][0]["matched_lane"] == "trans"
 
 
 def test_main_live_mode_fetches_filters_and_writes(monkeypatch, tmp_path) -> None:

@@ -44,7 +44,7 @@ def build_daily_candidates(items: list[dict[str, str]]) -> dict:
     return {
         "show": "What's the LGBT, Fish?",
         "date": date.today().isoformat(),
-        "scope": ["lesbian", "gay", "bisexual", "Black trans"],
+        "scope": ["lesbian", "gay", "bisexual", "trans"],
         "items": candidates,
     }
 

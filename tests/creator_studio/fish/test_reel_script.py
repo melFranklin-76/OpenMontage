@@ -10,7 +10,7 @@ HANDOFF = {
     "digest_date": "2026-07-06",
     "digest_rank": 1,
     "topic": "Black trans organizer leads Milwaukee safety initiative",
-    "lane": "Black trans",
+    "lane": "trans",
     "relevance_score": 1.0,
     "story": {
         "title": "Black trans organizer leads Milwaukee safety initiative",
@@ -27,7 +27,7 @@ def test_build_reel_script_structure() -> None:
 
     assert script["show"] == "What's the LGBT, Fish?"
     assert script["format"] == "reel"
-    assert script["lane"] == "Black trans"
+    assert script["lane"] == "trans"
     assert [s["id"] for s in script["sections"]] == [
         "hook",
         "story",
@@ -56,7 +56,10 @@ def test_narration_grounded_in_story() -> None:
 
 def test_lane_hashtags_and_caption() -> None:
     script = build_reel_script(HANDOFF)
-    assert "#blacktrans" in script["hashtags"]
+    assert "#trans" in script["hashtags"]
+    # The show still selects these stories, but no longer labels them
+    # "Black trans" in public-facing copy.
+    assert "#blacktrans" not in script["hashtags"]
     assert "#whatsthelgbtfish" in script["hashtags"]
     assert HANDOFF["topic"] in script["caption"]
 

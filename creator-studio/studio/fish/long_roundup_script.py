@@ -105,11 +105,10 @@ LANE_ANALYSIS_LINES = {
         "because bi erasure is played out and we are not participating."
     ),
     "trans": (
-        "Now hold on, because this is the part where I need y'all to lean "
-        "in. Trans stories can carry some of the highest stakes in our whole "
-        "community and get the least coverage — and that gap? That gap is "
-        "the entire reason this show exists. We lead with our sisters and "
-        "brothers, period."
+        "Now this is the part where I need you to lean in... GHOULS. Trans "
+        "stories carry the highest stakes in this community and get the least "
+        "coverage. That gap is the entire reason this show exists. So we lead "
+        "with them. Period."
     ),
 }
 

@@ -26,7 +26,7 @@ LANE_HASHTAGS = {
     "gay": ["#gay", "#gaynews", "#pride"],
     "lesbian": ["#lesbian", "#wlw", "#sapphic"],
     "bisexual": ["#bisexual", "#bivisibility", "#bipride"],
-    "Black trans": ["#blacktrans", "#blacktranslivesmatter", "#transrights"],
+    "trans": ["#trans", "#translivesmatter", "#transrights"],
 }
 
 LANE_WHY_LINES = {
@@ -43,9 +43,9 @@ LANE_WHY_LINES = {
         "Because bi stories almost never make the front page — and this one "
         "earned its spot, so we're giving it its flowers."
     ),
-    "Black trans": (
-        "Because Black trans stories lead this show, period — they lead the "
-        "movement, and we follow the leaders here."
+    "trans": (
+        "Because when trans people make the news, the coverage is usually "
+        "about them and almost never with them. Not here."
     ),
 }
 

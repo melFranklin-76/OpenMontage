@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from .broll import fetch_broll_for_story
+from .broll import fetch_broll_for_story, mentions_public_person
 from .reel_render import (
     _fetch_hero_image,
     _piper_tts,
@@ -313,16 +313,47 @@ def render_roundup(
     if proc.returncode != 0:
         sys.exit(f"[long_roundup_render] voice concat failed:\n{proc.stderr[-2000:]}")
 
-    # 3. Pre-fetch per-story visuals. Ladder: Pexels b-roll clip → article
-    #    hero image → lane color card (handled downstream by absence).
+    # 3. Pre-fetch per-story visuals.
+    #
+    #    Ladder: stock b-roll clip → article hero image → lane color card.
+    #    BUT when the story is about a named public person, that order flips.
+    #    Stock libraries carry no footage of specific people, so a clip would
+    #    show some anonymous stand-in while the host names a real person. The
+    #    article's own hero image is nearly always a photo of that very person,
+    #    so it wins — Ken Burns on the right face beats motion on the wrong one.
     broll_mp4s: dict[int, Path] = {}
     hero_pngs: dict[int, Path] = {}
     for rank, story in stories.items():
         lane = story.get("lane") or ""
         bg = LANE_BG.get(lane, DEFAULT_BG)
+        title = story.get("title", "")
+        url = story.get("url", "")
+
+        def _try_hero() -> bool:
+            """Fetch + prepare the article hero image. True if it landed."""
+            if not url:
+                return False
+            got = _fetch_hero_image(url, tmp_dir / f"hero_{rank:02d}_raw.bin")
+            if not got:
+                return False
+            hero_png = tmp_dir / f"hero_{rank:02d}.png"
+            try:
+                _prepare_horizontal_hero(got, hero_png, bg)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[long_roundup_render] hero prep failed for rank {rank}: {exc}",
+                      file=sys.stderr)
+                return False
+            hero_pngs[rank] = hero_png
+            return True
+
+        about_a_person = mentions_public_person(title)
+        if about_a_person and _try_hero():
+            print(f"[long_roundup_render] rank {rank}: named person → hero image",
+                  file=sys.stderr)
+            continue
 
         clip = fetch_broll_for_story(
-            title=story.get("title", ""),
+            title=title,
             lane=lane,
             out_path=tmp_dir / f"broll_{rank:02d}.mp4",
             orientation="landscape",
@@ -331,8 +362,7 @@ def render_roundup(
             broll_mp4s[rank] = clip
             continue    # motion beats stills; skip hero fetch
 
-        url = story.get("url", "")
-        if not url:
+        if rank in hero_pngs or not url:
             continue
         raw = tmp_dir / f"hero_{rank:02d}_raw.bin"
         got = _fetch_hero_image(url, raw)

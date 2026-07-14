@@ -44,7 +44,7 @@ def test_lane_tags_merged_in():
     for lane, expected in [
         ("gay", "gay"),
         ("lesbian", "lesbian"),
-        ("Black trans", "Black trans"),
+        ("trans", "trans"),
         ("bisexual", "bivisibility"),
     ]:
         script = dict(SCRIPT, lane=lane)
@@ -70,7 +70,7 @@ ROUNDUP = {
         {"rank": 1, "title": "Story one", "source": "SrcA",
          "url": "https://a.example/1", "lane": "gay"},
         {"rank": 2, "title": "Story two", "source": "SrcB",
-         "url": "https://b.example/2", "lane": "Black trans"},
+         "url": "https://b.example/2", "lane": "trans"},
         {"rank": 3, "title": "Story three", "source": "SrcC",
          "url": "https://c.example/3", "lane": "lesbian"},
     ],

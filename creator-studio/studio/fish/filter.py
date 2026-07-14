@@ -37,8 +37,13 @@ class FilterResult:
 def classify_lane(text: str) -> str | None:
     haystack = text.lower()
 
+    # Editorial note: Black trans stories are the type of trans story this show
+    # covers, so that signal is what selects a story into the trans lane. The
+    # lane is *labelled* "trans" on purpose — the show tells these stories
+    # without repeatedly narrating the label, which reads as exclusionary to
+    # the rest of the trans community. Selection here, phrasing in the scripts.
     if "black trans" in haystack or "black transgender" in haystack:
-        return "Black trans"
+        return "trans"
     if "lesbian" in haystack:
         return "lesbian"
     if "bisexual" in haystack or "bi " in haystack:

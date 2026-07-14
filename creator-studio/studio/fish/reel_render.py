@@ -533,29 +533,48 @@ def render_reel(
     #     Burns → lane color card. Motion wins when available. Fetch this
     #     first so the opening title beat can play over the motion instead of
     #     sitting on a static solid color card.
-    from .broll import fetch_broll_for_story
+    from .broll import fetch_broll_for_story, mentions_public_person
 
     story_url = (
         script.get("source_attribution", {}).get("url")
         or script.get("story_url", "")
     )
-    broll_clip = fetch_broll_for_story(
-        title=script.get("topic", ""),
-        lane=lane,
-        out_path=tmp_dir / "broll_bg.mp4",
-        orientation="portrait",
-    )
+    topic = script.get("topic", "")
+
     hero_bg = tmp_dir / "hero_bg.png"
     have_hero = False
-    if not broll_clip:
-        hero_src = _fetch_hero_image(story_url, tmp_dir / "hero_raw.bin") if story_url else None
-        if hero_src:
-            try:
-                _prepare_hero_bg(hero_src, hero_bg, bg)
-                have_hero = True
-            except Exception as exc:  # noqa: BLE001
-                print(f"[reel_render] hero prep failed, using solid bg: {exc}",
-                      file=sys.stderr)
+
+    def _try_hero() -> bool:
+        """Fetch + prepare the article hero image. True if it landed."""
+        if not story_url:
+            return False
+        hero_src = _fetch_hero_image(story_url, tmp_dir / "hero_raw.bin")
+        if not hero_src:
+            return False
+        try:
+            _prepare_hero_bg(hero_src, hero_bg, bg)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[reel_render] hero prep failed: {exc}", file=sys.stderr)
+            return False
+        return True
+
+    # When the story is about a named public person, the article's hero image
+    # is almost always a photo of that person — which beats a stock clip of an
+    # anonymous stand-in while the host says their name.
+    broll_clip = None
+    if mentions_public_person(topic) and _try_hero():
+        have_hero = True
+        print("[reel_render] named person → hero image over stock b-roll",
+              file=sys.stderr)
+    else:
+        broll_clip = fetch_broll_for_story(
+            title=topic,
+            lane=lane,
+            out_path=tmp_dir / "broll_bg.mp4",
+            orientation="portrait",
+        )
+        if not broll_clip and _try_hero():
+            have_hero = True
 
     # Brand lead card + hashtag outro card. Over motion (b-roll or hero) the
     # opening is a transparent overlay so footage shows through; on a solid

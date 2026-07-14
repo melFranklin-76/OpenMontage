@@ -22,7 +22,7 @@ def test_accepts_bisexual_story() -> None:
 def test_accepts_black_trans_story() -> None:
     result = evaluate_story("Black trans organizer leads safety initiative")
     assert result.accepted
-    assert result.lane == "Black trans"
+    assert result.lane == "trans"
 
 
 def test_legacy_lane_no_longer_exists() -> None:
