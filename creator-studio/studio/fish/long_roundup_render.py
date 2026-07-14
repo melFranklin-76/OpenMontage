@@ -63,6 +63,8 @@ CAPTION_Y_FRAC = 0.75      # Lower-third at 75%
 
 def _render_transparent_overlay(out_png: Path) -> None:
     """Render a fully transparent 1920x1080 overlay for clean long-form body sections."""
+    from PIL import Image
+
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     img.save(out_png)
 
