@@ -49,13 +49,71 @@ LANE_SEARCH_TERMS = {
 DEFAULT_SEARCH_TERM = "pride rainbow flag community"
 
 
-def build_query(title: str, lane: str = "") -> str:
-    """Deterministic, story-relevant search query from a story title.
+# Story subject → stock-footage concept.
+#
+# Pexels is a stock library: it has no news footage. A literal headline search
+# ("Lesbian author banned from library board meeting") matches nothing, so we
+# used to fall straight through to the lane term and get generic pride footage
+# on every single story. Mapping the story's *subject* to a concrete visual
+# concept that stock libraries actually carry is what makes the background
+# read as belonging to the story — a library ban gets bookshelves, a court
+# ruling gets a courthouse.
+#
+# Order matters: the first matching entry wins, so put the specific before the
+# generic (book-ban before books, legislature before law).
+TOPIC_VISUALS: tuple[tuple[tuple[str, ...], str], ...] = (
+    # Death outranks the subject's profession: an obituary for a drag performer
+    # should get a vigil, not party footage from a nightclub.
+    (("dies", "died", "death", "obituary", "memorial", "funeral", "vigil", "killed",
+      "murder", "mourns"), "candle vigil memorial"),
+    (("book ban", "banned book", "library", "librarian"), "library bookshelves reading"),
+    (("supreme court", "court", "judge", "lawsuit", "ruling", "sued", "trial", "verdict"),
+     "courthouse justice gavel"),
+    (("senate", "congress", "governor", "lawmaker", "legislature", "bill", "statehouse",
+      "president", "white house", "policy", "law"), "government capitol building"),
+    (("election", "vote", "voter", "ballot", "campaign", "poll"), "voting ballot election"),
+    (("school", "student", "teacher", "classroom", "campus", "university", "college"),
+     "school classroom students"),
+    (("hospital", "healthcare", "health", "doctor", "clinic", "medical", "hormone",
+      "surgery", "hiv", "prep"), "hospital medical doctor"),
+    (("protest", "march", "rally", "demonstration", "activist", "boycott"),
+     "protest march crowd"),
+    (("police", "arrest", "officer", "sheriff", "raid"), "police officer street"),
+    (("church", "religious", "pastor", "faith", "christian", "catholic", "bible"),
+     "church interior architecture"),
+    (("film", "movie", "actor", "actress", "cinema", "hollywood", "director", "series"),
+     "cinema film production"),
+    (("music", "singer", "album", "song", "concert", "tour", "rapper", "band"),
+     "concert stage lights"),
+    (("sport", "athlete", "olympic", "player", "league", "team", "swim", "track"),
+     "stadium athlete sport"),
+    (("drag", "ballroom", "nightclub", "bar", "nightlife"), "nightclub stage lights"),
+    (("award", "honored", "prize", "wins", "winner", "gala"), "award trophy stage"),
+    (("housing", "homeless", "shelter", "eviction", "rent"), "city apartment housing"),
+    (("military", "veteran", "soldier", "army", "troops", "navy"), "military soldier flag"),
+    (("book", "author", "novel", "writer", "memoir"), "books reading writing"),
+    (("company", "brand", "corporate", "business", "ceo", "workplace", "employer"),
+     "office business workplace"),
+    (("parade", "pride festival", "pride month"), "pride parade crowd"),
+)
 
-    Keeps the first few content words of the headline so the footage matches
-    the story itself. The ``lane`` argument is accepted for signature
-    compatibility but intentionally not appended — the lane term is reserved
-    for the fallback query in ``fetch_broll_for_story``.
+
+def topic_query(title: str) -> str:
+    """Map a headline to a stock-footage concept. Empty string if no match."""
+    low = title.lower()
+    for keywords, visual in TOPIC_VISUALS:
+        if any(kw in low for kw in keywords):
+            return visual
+    return ""
+
+
+def build_query(title: str, lane: str = "") -> str:
+    """Deterministic, literal search query from a story title.
+
+    Keeps the first few content words of the headline. The ``lane`` argument
+    is accepted for signature compatibility but intentionally not appended —
+    the lane term is reserved for the last-resort fallback in
+    ``fetch_broll_for_story``.
     """
     words = re.findall(r"[A-Za-z][A-Za-z'-]+", title.lower())
     content = [w for w in words if w not in _STOPWORDS and len(w) > 2]
@@ -138,15 +196,25 @@ def fetch_broll_for_story(
 ) -> Path | None:
     """One-call ladder step: query → search → download. None on any miss.
 
-    Tries the title-derived query first, then the pure lane term, so a
-    hyper-specific headline still lands on generic lane footage.
+    Search order, most story-relevant first:
+
+    1. The story's *subject* mapped to a stock-footage concept — a library ban
+       gets bookshelves, a court ruling gets a courthouse. Stock libraries
+       carry these, so this is the query that actually lands.
+    2. The literal headline words, in case the subject is something stock
+       happens to cover directly.
+    3. The lane term, as a last resort so we always have *something*.
     """
     if not _api_key():
         return None
-    for query in (
+
+    queries = [q for q in (
+        topic_query(title),
         build_query(title, lane),
         LANE_SEARCH_TERMS.get(lane, DEFAULT_SEARCH_TERM),
-    ):
+    ) if q]
+
+    for query in queries:
         url = search_broll(query, orientation=orientation)
         if url:
             got = download_broll(url, out_path)

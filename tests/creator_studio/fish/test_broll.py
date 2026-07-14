@@ -31,6 +31,26 @@ def test_build_query_empty_title_falls_back():
     assert q == broll.DEFAULT_SEARCH_TERM
 
 
+def test_topic_query_maps_story_subject_to_stock_concept():
+    """Stock libraries have no news footage, so we search the story's subject."""
+    assert broll.topic_query("Lesbian author banned from library board") == \
+        "library bookshelves reading"
+    assert broll.topic_query("Supreme Court hears marriage case") == \
+        "courthouse justice gavel"
+    assert broll.topic_query("Trans swimmer wins state championship") == \
+        "stadium athlete sport"
+
+
+def test_topic_query_death_outranks_profession():
+    """An obituary gets a vigil, not party footage from the subject's job."""
+    assert broll.topic_query("Beloved drag performer dies at 71") == \
+        "candle vigil memorial"
+
+
+def test_topic_query_returns_empty_when_no_subject_matches():
+    assert broll.topic_query("Zzzz qqqq wwww") == ""
+
+
 def test_lane_search_terms_cover_the_four_lanes():
     assert set(broll.LANE_SEARCH_TERMS) == {"gay", "lesbian", "bisexual", "Black trans"}
     assert "legacy" not in broll.LANE_SEARCH_TERMS

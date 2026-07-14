@@ -44,6 +44,10 @@ except ImportError:
 
 DEFAULT_EDGE_VOICE = "en-US-BrianNeural"
 
+# Delivery pace. The default read was a touch slow for a news roundup; +10%
+# is noticeably snappier while leaving the comedic pauses ("...") intact.
+EDGE_TTS_RATE = "+10%"
+
 EDGE_LANE_VOICE = {
     "gay":         "en-US-BrianNeural",
     "lesbian":     "en-US-BrianNeural",
@@ -312,7 +316,7 @@ def _edge_tts(text: str, out_wav: Path, voice: str | None = None) -> None:
     mp3_path = out_wav.with_suffix(".mp3")
 
     async def _generate():
-        communicate = edge_tts.Communicate(text, voice)
+        communicate = edge_tts.Communicate(text, voice, rate=EDGE_TTS_RATE)
         await communicate.save(str(mp3_path))
 
     asyncio.run(_generate())

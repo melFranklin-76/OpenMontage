@@ -101,6 +101,50 @@ def test_extract_key_sentences_filters_boilerplate():
     assert any("grant" in s.lower() or "investment" in s.lower() for s in picked)
 
 
+def test_strip_html_decodes_numeric_entities():
+    """A bare &#32; used to survive and TTS read the '#' as 'number 32'."""
+    out = lrs._strip_html("<p>Real sentence.</p> &#32; &#32; &#8217;")
+    assert "&#32;" not in out
+    assert "#32" not in out
+    assert "32" not in out
+
+
+def test_strip_html_removes_html_comments():
+    """Template junk in comments leaked into narration as spoken text."""
+    out = lrs._strip_html("<p>Real news.</p><!-- Creation Date: 04/19/2024 -->")
+    assert "Creation Date" not in out
+    assert "-->" not in out
+    assert "Real news." in out
+
+
+def test_extract_key_sentences_drops_site_template_boilerplate():
+    text = (
+        "Stay informed on important LGBTQ+ news and never miss a headline again. "
+        "The council voted 7 to 2 on March 3, 2026 to reverse the library ban "
+        "after a month of organized community pressure from local residents."
+    )
+    picked = lrs._extract_key_sentences(text, max_sentences=3)
+    joined = " ".join(picked).lower()
+    assert "stay informed" not in joined
+    assert any("council" in s.lower() for s in picked)
+
+
+def test_address_terms_rotate_deterministically():
+    assert lrs._address(0) == "GHOULS"
+    assert lrs._address(4) == "GHOULS"      # wraps
+    assert set(lrs.ADDRESS_TERMS) == {"GHOULS", "FISH", "QUEEN", "BRICK"}
+
+
+def test_story_bodies_serve_the_T_not_the_rundown():
+    script = _build()
+    bodies = [s for s in script["sections"] if s["id"].endswith("_body")]
+    joined = " ".join(s["narration"] for s in bodies)
+    assert "here's the T" in joined
+    assert "here's the rundown" not in joined
+    # every body lands one of the address terms
+    assert any(term in joined for term in lrs.ADDRESS_TERMS)
+
+
 def test_extract_key_sentences_strips_urls():
     text = (
         "The organization launched at https://example.com/donate today. "

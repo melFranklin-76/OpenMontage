@@ -31,6 +31,7 @@ the schema.
 from __future__ import annotations
 
 import argparse
+import html as _html
 import json
 import re
 import sys
@@ -52,25 +53,37 @@ WORDS_PER_SECOND = 2.5      # ~150 WPM Piper speaking rate
 # creators like Funky Dineva. Facts stay straight; delivery has flavor.
 # Keep it monetization-safe: no slurs, no defamation, no unverified tea.
 
+# Direct-address terms in the ballroom register, rotated deterministically so
+# a given story always lands the same one. Upper-cased on purpose: the TTS
+# hits them harder, and they're meant to be the punch that lands on the beat
+# right after a pause.
+ADDRESS_TERMS = ("GHOULS", "FISH", "QUEEN", "BRICK")
+
+
+def _address(i: int) -> str:
+    """Deterministic direct-address term for section/story index ``i``."""
+    return ADDRESS_TERMS[i % len(ADDRESS_TERMS)]
+
+
 COLD_OPEN_LINES = [
-    "Hey y'all, hey! It is your girl, and this is What's the LGBT, Fish? — "
-    "the only roundup that loves you enough to tell you the truth. "
-    "{count_word} stories today, honey. No fluff, no filler, and absolutely no "
-    "both-sides-ing our own existence. Just what happened, who it happened "
-    "to, and why you need to know before somebody's cousin misquotes it in "
-    "a group chat.",
+    "Hey y'all, hey. It is your girl, and this is What's the LGBT, Fish? — "
+    "the only roundup that respects you enough to hand you the truth instead "
+    "of the press release. {count_word} stories today... GHOULS. No fluff, no "
+    "filler, and absolutely no both-sides-ing our own existence. Just what "
+    "happened, who it happened to, and why you need to know it before "
+    "somebody's cousin misquotes it in a group chat.",
 ]
 
 INTRO_LINES_TEMPLATE = (
-    "Alright, let's get into it. Today is {date_readable}, and baby, the "
-    "news did NOT take a day off — we've got {count_word} stories from {lanes_summary}. "
-    "Now one ground rule before we start, because y'all know I keep it "
-    "honest: the order of these stories comes from our relevance scoring, "
-    "not from me playing favorites. Four lanes — lesbian, gay, bisexual, "
-    "and trans — and every single story earned its seat at "
-    "this table. Some of this you will not find on anybody's front page. "
-    "That's not an accident, and that's exactly why we're here. So pour "
-    "your little beverage and let's talk about it."
+    "Alright. Today is {date_readable}, and the news did not take a day off — "
+    "we've got {count_word} stories from {lanes_summary}. "
+    "One ground rule before we start, because I keep it honest: the order "
+    "comes from our relevance scoring, not from me playing favorites. Four "
+    "lanes — lesbian, gay, bisexual, and trans — and every single story "
+    "earned its seat at this table. Some of this you will not find on "
+    "anybody's front page. That is not an accident. That is the entire reason "
+    "we are here. So pour yourself a lil COCKtail... QUEEN... and let's get "
+    "into it."
 )
 
 LANE_ANALYSIS_LINES = {
@@ -82,7 +95,7 @@ LANE_ANALYSIS_LINES = {
     "lesbian": (
         "Now can we talk about how lesbian stories always get filed under "
         "'women' or shoved into the big LGBT folder until the specifics "
-        "disappear? Not on this show, baby. We say who it's about, by name, "
+        "disappear? Not on this show... QUEEN. We say who it's about, by name, "
         "with our whole chest."
     ),
     "bisexual": (
@@ -114,33 +127,33 @@ NUMBER_WORDS = {
 }
 
 TRANSITION_LINES = [
-    "Okay, moving right along, because the tea does not steep itself.",
-    "Now hold that thought, because this next one? Whew.",
-    "Alright, deep breath, y'all — story {next_n}, let's go.",
-    "Meanwhile, in a whole other corner of the community...",
-    "And just when you thought the day was done, baby, it was not.",
-    "Speaking of stories that deserve way more attention than they got.",
-    "Now this next one, I need y'all to really hear me on.",
-    "Okay okay okay — next story, because we have things to discuss.",
-    "That was story {n}. Story {next_n} is where it gets interesting.",
-    "Let me sip some water, because this next one took me OUT.",
-    "Y'all still with me? Good, because we are not done.",
-    "Now switch gears with me for a second.",
-    "And the news just kept on newsing, honey.",
-    "This next story? I have thoughts. Let's get into them.",
+    "Moving right along. The T does not steep itself.",
+    "Hold that thought... FISH. This next one is worse.",
+    "Deep breath. Story {next_n}.",
+    "Meanwhile, in a completely different corner of the community...",
+    "And just when you thought the day was finished... it was not.",
+    "Speaking of stories that deserved more attention than they got.",
+    "This next one I need you to actually hear me on... QUEEN.",
+    "Next story. We have things to discuss.",
+    "That was story {n}. Story {next_n} is where it gets stupid.",
+    "Let me sip. This next one took me OUT.",
+    "Still with me... GHOULS? Good. We are not done.",
+    "Switch gears with me for a second.",
+    "And the news just kept on newsing... BRICK.",
+    "This next story? I have thoughts. You're going to hear them.",
 ]
 
 OUTRO_LINES_TEMPLATE = (
-    "And THAT, my loves, is {count_word_lower} stories in {total_min} minutes — you are "
-    "officially caught up, and nobody at brunch can tell you nothing. If "
-    "any of these stories hit you somewhere real, get in those comments and "
-    "talk to me — the algorithm rewards conversation and I reward good tea. "
-    "Every single source is linked down in the description, with chapter "
-    "timestamps, so if somebody in your life needs exactly ONE of these "
-    "stories, you can send them straight to it. Clip it, share it, forward "
-    "it to your messiest group chat. Follow for tomorrow's roundup — same "
-    "time, same energy, same four lanes. And until then, you know what to "
-    "do: keep asking... what's the LGBT, Fish? Okay bye!"
+    "And THAT is {count_word_lower} stories in {total_min} minutes. You are "
+    "officially caught up, and nobody at brunch can tell you a thing. If any "
+    "of these hit you somewhere real, get in those comments and talk to me — "
+    "the algorithm rewards conversation, and I reward good T. Every source is "
+    "linked in the description with chapter timestamps, so if somebody in "
+    "your life needs exactly ONE of these stories, you can send them straight "
+    "to it. Clip it, share it, forward it to your messiest group chat. Follow "
+    "for tomorrow's roundup — same time, same energy, same four lanes. And "
+    "until then, you know what to do... GHOULS. Keep asking... what's the "
+    "LGBT, Fish? Okay bye."
 )
 
 
@@ -153,6 +166,10 @@ _ARTICLE_UA = (
 
 def _strip_html(html: str) -> str:
     """Very-basic HTML → plain text. Not perfect, good enough for enrichment."""
+    # Drop HTML comments first. These carry template junk like
+    # "<!-- Creation Date: 04/19/2024 -->" that otherwise leaks into narration
+    # (the tag regex below can't span a comment that contains '>').
+    html = re.sub(r"<!--.*?-->", " ", html, flags=re.DOTALL)
     # Drop <script>/<style>/<nav>/<footer>/<aside> blocks entirely
     html = re.sub(
         r"<(script|style|nav|footer|aside|header|form)[^>]*>.*?</\1>",
@@ -164,12 +181,11 @@ def _strip_html(html: str) -> str:
     html = re.sub(r"</?(p|h[1-6]|br|li|div)[^>]*>", "\n", html, flags=re.IGNORECASE)
     # Drop all remaining tags
     html = re.sub(r"<[^>]+>", " ", html)
-    # HTML entities we care about
-    html = (html.replace("&nbsp;", " ").replace("&amp;", "&")
-                .replace("&#8217;", "'").replace("&#8216;", "'")
-                .replace("&#8220;", '"').replace("&#8221;", '"')
-                .replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">"))
-    # Strip URLs — Piper TTS spells these out letter by letter
+    # Decode every HTML entity, named and numeric. Hand-rolling a short list
+    # left numeric refs like "&#32;" intact, and TTS reads the '#' aloud —
+    # that's where the phantom "number 32" in the narration came from.
+    html = _html.unescape(html)
+    # Strip URLs — TTS spells these out letter by letter
     html = re.sub(r"https?://\S+", "", html)
     html = re.sub(r"www\.\S+", "", html)
     return re.sub(r"[ \t]+", " ", html)
@@ -224,6 +240,8 @@ def _extract_key_sentences(article_text: str, max_sentences: int = 10) -> list[s
             "cookie", "subscribe", "newsletter", "sign in",
             "privacy policy", "terms of service", "©", "all rights reserved",
             "read more", "click here", "follow us", "advertisement",
+            # Site-template junk that leaked into narration via HTML comments
+            "stay informed", "creation date", "sign up for", "our newsletter",
         )):
             continue
         score = 0
@@ -290,30 +308,39 @@ def _lanes_summary(stories: list[dict]) -> str:
     return "the " + ", ".join(lanes[:-1]) + f", and {lanes[-1]} lanes"
 
 
-def _story_narration(story: dict, article_sentences: list[str] | None = None) -> str:
+def _story_narration(
+    story: dict,
+    article_sentences: list[str] | None = None,
+    index: int = 0,
+) -> str:
     """Compose the narration for a single story block.
 
     If article_sentences are provided (from Jina Reader), splice them in
     after the hook to give each block real journalistic depth instead of
     the 12-word RSS summary alone.
+
+    ``index`` selects the rotating direct-address term so the same story
+    always lands the same one.
     """
     title = story.get("title", "").strip()
     summary = story.get("summary", "").strip()
     source = story.get("source", "").strip()
     lane = story.get("matched_lane") or story.get("lane") or ""
+    who = _address(index)
 
     hook = title.rstrip(".") + "."
     parts: list[str] = [hook]
 
     if article_sentences:
-        parts.append("\nOkay, so here's the rundown.\n")
+        # Dry and literal: we are serving the T, not "the rundown".
+        parts.append(f"\nSo here's the T... {who}.\n")
         connectors = [
             None, None,
-            "\nNow here's where it gets real.\n",
+            "\nAnd here is where it gets stupid.\n",
             None,
-            "\nAnd it did not stop there, baby.\n",
+            "\nIt did not stop there.\n",
             None, None,
-            "\nStay with me, because there's more.\n",
+            "\nStay with me. There's more.\n",
             None, None,
         ]
         for j, sent in enumerate(article_sentences[:10]):
@@ -326,9 +353,10 @@ def _story_narration(story: dict, article_sentences: list[str] | None = None) ->
                 parts.append(clean)
     elif summary:
         clean_summary = re.sub(r"https?://\S+", "", _truncate_words(summary, 80))
+        parts.append(f"\nSo here's the T... {who}.\n")
         parts.append(clean_summary)
         parts.append(
-            "\nNow that's the short version... the wire copy was stingy today... "
+            "\nThat is the short version. The wire copy was stingy today, "
             "so we'll keep this one tight and let the source fill in the rest.\n"
         )
 
@@ -420,7 +448,7 @@ def build_roundup_script(
                     f"[roundup] enriched story {i} with {len(enrichment)} sentences",
                     file=sys.stderr,
                 )
-        body = _story_narration(story, article_sentences=enrichment)
+        body = _story_narration(story, article_sentences=enrichment, index=i)
         sections.append({
             "id": f"ch{i}_body",
             "narration": body,

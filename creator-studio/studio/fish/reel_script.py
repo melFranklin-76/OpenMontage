@@ -36,7 +36,7 @@ LANE_WHY_LINES = {
         "what I mean."
     ),
     "lesbian": (
-        "Because lesbian stories deserve the whole spotlight, honey, not a "
+        "Because lesbian stories deserve the whole spotlight... FISH... not a "
         "footnote at the bottom of somebody else's article."
     ),
     "bisexual": (
@@ -91,7 +91,7 @@ def build_reel_script(handoff: dict) -> dict:
         {
             "id": "cta",
             "narration": (
-                f"Full story from {source} — link in bio, baby. "
+                f"Full story from {source} — link in bio... GHOULS. "
                 "Follow for the LGBT news that actually matters. Okay bye!"
             ),
             "duration_seconds": 8,
