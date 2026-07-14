@@ -44,18 +44,146 @@ LANE_SEARCH_TERMS = {
     "lesbian":     "lesbian couple pride",
     "gay":         "gay pride rainbow crowd",
     "bisexual":    "bisexual pride flag",
-    "Black trans": "Black community rally support",
+    "trans": "trans rights rally support",
 }
 DEFAULT_SEARCH_TERM = "pride rainbow flag community"
 
 
-def build_query(title: str, lane: str = "") -> str:
-    """Deterministic, story-relevant search query from a story title.
+# Story subject → stock-footage concept.
+#
+# Pexels is a stock library: it has no news footage. A literal headline search
+# ("Lesbian author banned from library board meeting") matches nothing, so we
+# used to fall straight through to the lane term and get generic pride footage
+# on every single story. Mapping the story's *subject* to a concrete visual
+# concept that stock libraries actually carry is what makes the background
+# read as belonging to the story — a library ban gets bookshelves, a court
+# ruling gets a courthouse.
+#
+# Order matters: the first matching entry wins, so put the specific before the
+# generic (book-ban before books, legislature before law).
+TOPIC_VISUALS: tuple[tuple[tuple[str, ...], str], ...] = (
+    # Death outranks the subject's profession: an obituary for a drag performer
+    # should get a vigil, not party footage from a nightclub.
+    (("dies", "died", "death", "obituary", "memorial", "funeral", "vigil", "killed",
+      "murder", "mourns"), "candle vigil memorial"),
+    (("book ban", "banned book", "library", "librarian"), "library bookshelves reading"),
+    (("supreme court", "court", "judge", "lawsuit", "ruling", "sued", "trial", "verdict"),
+     "courthouse justice gavel"),
+    (("senate", "congress", "governor", "lawmaker", "legislature", "bill", "statehouse",
+      "president", "white house", "policy", "law"), "government capitol building"),
+    (("election", "vote", "voter", "ballot", "campaign", "poll"), "voting ballot election"),
+    (("school", "student", "teacher", "classroom", "campus", "university", "college"),
+     "school classroom students"),
+    (("hospital", "healthcare", "health", "doctor", "clinic", "medical", "hormone",
+      "surgery", "hiv", "prep"), "hospital medical doctor"),
+    (("protest", "protests", "march", "marches", "rally", "rallies",
+      "demonstration", "demonstrations", "activist", "activists", "boycott"),
+     "protest march crowd"),
+    (("police", "arrest", "officer", "sheriff", "raid"), "police officer street"),
+    (("church", "religious", "pastor", "faith", "christian", "catholic", "bible"),
+     "church interior architecture"),
+    (("film", "movie", "actor", "actress", "cinema", "hollywood", "director", "series"),
+     "cinema film production"),
+    (("music", "singer", "album", "song", "concert", "tour", "rapper", "band"),
+     "concert stage lights"),
+    (("sport", "sports", "athlete", "olympic", "olympics", "player", "league",
+      "team", "swim", "swimmer", "swimming", "track", "championship",
+      "championships", "tournament"), "stadium athlete sport"),
+    (("drag", "ballroom", "nightclub", "bar", "nightlife"), "nightclub stage lights"),
+    (("award", "honored", "prize", "wins", "winner", "gala"), "award trophy stage"),
+    (("housing", "homeless", "shelter", "eviction", "rent"), "city apartment housing"),
+    (("military", "veteran", "soldier", "army", "troops", "navy"), "military soldier flag"),
+    (("book", "author", "novel", "writer", "memoir"), "books reading writing"),
+    (("company", "brand", "corporate", "business", "ceo", "workplace", "employer"),
+     "office business workplace"),
+    (("parade", "pride festival", "pride month"), "pride parade crowd"),
+)
 
-    Keeps the first few content words of the headline so the footage matches
-    the story itself. The ``lane`` argument is accepted for signature
-    compatibility but intentionally not appended — the lane term is reserved
-    for the fallback query in ``fetch_broll_for_story``.
+
+def _keyword_hit(keyword: str, low: str) -> bool:
+    """Whole-word (or whole-phrase) match, tolerant of a trailing plural 's'.
+
+    Naive substring matching was wrong for short keywords: "bar" matched
+    "Turkey BARred a cruise" and sent a cruise story to a nightclub. Word
+    boundaries fix that while still catching "bars", "voters", "courts".
+    """
+    return re.search(rf"\b{re.escape(keyword)}s?\b", low) is not None
+
+
+def topic_query(title: str) -> str:
+    """Map a headline to a stock-footage concept. Empty string if no match."""
+    low = title.lower()
+    for keywords, visual in TOPIC_VISUALS:
+        if any(_keyword_hit(kw, low) for kw in keywords):
+            return visual
+    return ""
+
+
+# Capitalized words that make a Capitalized-Bigram an institution, place, or
+# event rather than a person — "Supreme Court", "White House", "New York",
+# "Trevor Project", "Pride Month".
+_NON_PERSON_WORDS = {
+    "court", "house", "state", "states", "city", "county", "university",
+    "college", "school", "department", "project", "foundation", "campaign",
+    "center", "centre", "institute", "association", "society", "church",
+    "committee", "council", "board", "senate", "congress", "parliament",
+    "america", "american", "pride", "month", "day", "week", "festival",
+    "awards", "award", "act", "bill", "law", "york", "angeles", "francisco",
+    "carolina", "virginia", "dakota", "jersey", "mexico", "hampshire",
+    "island", "texas", "florida", "georgia", "ohio", "michigan", "orleans",
+    "united", "national", "international", "world", "global", "supreme",
+    "white", "high", "federal", "republican", "republicans", "democrat",
+    "democrats", "democratic", "netflix", "disney", "target", "walmart",
+    # Venues / places: "Stonewall Inn", "Castro Theatre", "Studio 54"
+    "inn", "bar", "club", "theatre", "theater", "museum", "hotel", "cafe",
+    "cathedral", "stadium", "arena", "park", "library", "hospital", "center",
+    "district", "village", "heights", "beach", "springs", "valley", "hills",
+    "college", "academy", "hall", "tower", "plaza", "square", "street",
+    # Leading determiners / question words that start a headline, so
+    # "The Stonewall", "This Pride", "Why Trans" don't read as a first name.
+    "the", "this", "that", "these", "those", "why", "how", "what", "when",
+    "who", "his", "her", "their", "our", "your", "meet", "inside", "watch",
+}
+
+_PERSON_RE = re.compile(r"\b([A-Z][a-z]{1,15})\s+([A-Z][a-z'’-]{1,20})\b")
+
+
+def mentions_public_person(title: str) -> bool:
+    """True if the headline looks like it's about a named public person.
+
+    Stock libraries carry no footage of specific people, so for these stories
+    the article's own hero image — which is nearly always a photo of that very
+    person — beats any generic clip we could search for. The renderers use this
+    to put the hero image ahead of stock b-roll in the visual ladder.
+
+    A false positive is a safe failure: we fall back to the article's own
+    image, which is relevant to the story by construction.
+    """
+    # Title-case headlines ("Why Trans Elders Deserve Better") capitalize every
+    # word, so the name signal is gone — every bigram looks like a person.
+    # Only trust this heuristic on sentence-case headlines, where capitals
+    # actually mark proper nouns.
+    words = [w for w in re.findall(r"[A-Za-z]+", title) if len(w) > 2]
+    if words:
+        capitalized = sum(1 for w in words if w[0].isupper())
+        if capitalized / len(words) > 0.6:
+            return False
+
+    for match in _PERSON_RE.finditer(title):
+        first, last = match.group(1).lower(), match.group(2).lower()
+        if first in _NON_PERSON_WORDS or last in _NON_PERSON_WORDS:
+            continue
+        return True
+    return False
+
+
+def build_query(title: str, lane: str = "") -> str:
+    """Deterministic, literal search query from a story title.
+
+    Keeps the first few content words of the headline. The ``lane`` argument
+    is accepted for signature compatibility but intentionally not appended —
+    the lane term is reserved for the last-resort fallback in
+    ``fetch_broll_for_story``.
     """
     words = re.findall(r"[A-Za-z][A-Za-z'-]+", title.lower())
     content = [w for w in words if w not in _STOPWORDS and len(w) > 2]
@@ -138,15 +266,25 @@ def fetch_broll_for_story(
 ) -> Path | None:
     """One-call ladder step: query → search → download. None on any miss.
 
-    Tries the title-derived query first, then the pure lane term, so a
-    hyper-specific headline still lands on generic lane footage.
+    Search order, most story-relevant first:
+
+    1. The story's *subject* mapped to a stock-footage concept — a library ban
+       gets bookshelves, a court ruling gets a courthouse. Stock libraries
+       carry these, so this is the query that actually lands.
+    2. The literal headline words, in case the subject is something stock
+       happens to cover directly.
+    3. The lane term, as a last resort so we always have *something*.
     """
     if not _api_key():
         return None
-    for query in (
+
+    queries = [q for q in (
+        topic_query(title),
         build_query(title, lane),
         LANE_SEARCH_TERMS.get(lane, DEFAULT_SEARCH_TERM),
-    ):
+    ) if q]
+
+    for query in queries:
         url = search_broll(query, orientation=orientation)
         if url:
             got = download_broll(url, out_path)

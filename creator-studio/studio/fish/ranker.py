@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 LANE_WEIGHTS = {
-    "Black trans": 1.0,
+    "trans": 1.0,
     "lesbian": 0.9,
     "gay": 0.85,
     "bisexual": 0.85,

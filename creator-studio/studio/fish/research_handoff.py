@@ -22,7 +22,7 @@ LANE_ANGLES = {
     "gay": "Why this matters to gay audiences right now",
     "lesbian": "The lesbian community story behind the headline",
     "bisexual": "A bi visibility moment worth 45 seconds",
-    "Black trans": "Centering Black trans voices on this story",
+    "trans": "Centering trans voices on this story",
 }
 
 

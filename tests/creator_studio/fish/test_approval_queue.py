@@ -18,7 +18,7 @@ SCRIPT = {
     "format": "reel",
     "target_duration_seconds": 45,
     "topic": "Black trans organizer leads Milwaukee safety initiative",
-    "lane": "Black trans",
+    "lane": "trans",
     "sections": [
         {"id": "hook", "narration": "What's the LGBT, Fish?", "duration_seconds": 6, "visual_hint": ""},
         {"id": "story", "narration": "Community safety.", "duration_seconds": 19, "visual_hint": ""},

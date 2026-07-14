@@ -78,13 +78,14 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install feedparser jsonschema pyyaml pillow edge-tts
+          python -m pip install feedparser jsonschema pyyaml pillow edge-tts yt-dlp
 
       - name: Run live daily digest
         run: |
           python -m studio.fish.daily_digest \
             --live \
             --social \
+            --creator-watch \
             --output fish-digest-$(date -u +%Y-%m-%d).json
 
       - name: Show today's top stories

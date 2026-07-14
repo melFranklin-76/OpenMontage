@@ -48,7 +48,7 @@ LANE_TAGS = {
     "gay":         ["gay", "gaynews", "pride"],
     "lesbian":     ["lesbian", "wlw", "sapphic"],
     "bisexual":    ["bisexual", "bivisibility", "bipride"],
-    "Black trans": ["Black trans", "BlackTransLivesMatter", "transrights"],
+    "trans":       ["trans", "translivesmatter", "transrights"],
 }
 
 
