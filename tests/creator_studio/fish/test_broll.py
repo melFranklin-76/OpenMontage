@@ -51,6 +51,22 @@ def test_topic_query_returns_empty_when_no_subject_matches():
     assert broll.topic_query("Zzzz qqqq wwww") == ""
 
 
+def test_topic_query_uses_word_boundaries_not_substrings():
+    """'barred' must not trip the 'bar' → nightclub mapping."""
+    assert broll.topic_query("Turkey barred a cruise with gay travelers") == ""
+    assert broll.topic_query("Barbara marches for equality") == "protest march crowd"
+    # but a real bar still maps, including the plural
+    assert broll.topic_query("Historic gay bar closes") == "nightclub stage lights"
+    assert broll.topic_query("Gay bars see a revival") == "nightclub stage lights"
+
+
+def test_mentions_public_person_ignores_venues_and_title_case():
+    # A named venue is a place, not a person.
+    assert not broll.mentions_public_person("The Stonewall Inn reopens as a museum")
+    # All-title-case headlines carry no name signal.
+    assert not broll.mentions_public_person("Why Trans Elders Deserve Better Care")
+
+
 def test_lane_search_terms_cover_the_four_lanes():
     assert set(broll.LANE_SEARCH_TERMS) == {"gay", "lesbian", "bisexual", "trans"}
     assert "legacy" not in broll.LANE_SEARCH_TERMS

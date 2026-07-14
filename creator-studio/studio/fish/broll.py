@@ -85,8 +85,9 @@ TOPIC_VISUALS: tuple[tuple[tuple[str, ...], str], ...] = (
      "cinema film production"),
     (("music", "singer", "album", "song", "concert", "tour", "rapper", "band"),
      "concert stage lights"),
-    (("sport", "athlete", "olympic", "player", "league", "team", "swim", "track"),
-     "stadium athlete sport"),
+    (("sport", "sports", "athlete", "olympic", "olympics", "player", "league",
+      "team", "swim", "swimmer", "swimming", "track", "championship",
+      "championships", "tournament"), "stadium athlete sport"),
     (("drag", "ballroom", "nightclub", "bar", "nightlife"), "nightclub stage lights"),
     (("award", "honored", "prize", "wins", "winner", "gala"), "award trophy stage"),
     (("housing", "homeless", "shelter", "eviction", "rent"), "city apartment housing"),
@@ -98,11 +99,21 @@ TOPIC_VISUALS: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
+def _keyword_hit(keyword: str, low: str) -> bool:
+    """Whole-word (or whole-phrase) match, tolerant of a trailing plural 's'.
+
+    Naive substring matching was wrong for short keywords: "bar" matched
+    "Turkey BARred a cruise" and sent a cruise story to a nightclub. Word
+    boundaries fix that while still catching "bars", "voters", "courts".
+    """
+    return re.search(rf"\b{re.escape(keyword)}s?\b", low) is not None
+
+
 def topic_query(title: str) -> str:
     """Map a headline to a stock-footage concept. Empty string if no match."""
     low = title.lower()
     for keywords, visual in TOPIC_VISUALS:
-        if any(kw in low for kw in keywords):
+        if any(_keyword_hit(kw, low) for kw in keywords):
             return visual
     return ""
 
@@ -122,6 +133,15 @@ _NON_PERSON_WORDS = {
     "united", "national", "international", "world", "global", "supreme",
     "white", "high", "federal", "republican", "republicans", "democrat",
     "democrats", "democratic", "netflix", "disney", "target", "walmart",
+    # Venues / places: "Stonewall Inn", "Castro Theatre", "Studio 54"
+    "inn", "bar", "club", "theatre", "theater", "museum", "hotel", "cafe",
+    "cathedral", "stadium", "arena", "park", "library", "hospital", "center",
+    "district", "village", "heights", "beach", "springs", "valley", "hills",
+    "college", "academy", "hall", "tower", "plaza", "square", "street",
+    # Leading determiners / question words that start a headline, so
+    # "The Stonewall", "This Pride", "Why Trans" don't read as a first name.
+    "the", "this", "that", "these", "those", "why", "how", "what", "when",
+    "who", "his", "her", "their", "our", "your", "meet", "inside", "watch",
 }
 
 _PERSON_RE = re.compile(r"\b([A-Z][a-z]{1,15})\s+([A-Z][a-z'’-]{1,20})\b")
@@ -138,6 +158,16 @@ def mentions_public_person(title: str) -> bool:
     A false positive is a safe failure: we fall back to the article's own
     image, which is relevant to the story by construction.
     """
+    # Title-case headlines ("Why Trans Elders Deserve Better") capitalize every
+    # word, so the name signal is gone — every bigram looks like a person.
+    # Only trust this heuristic on sentence-case headlines, where capitals
+    # actually mark proper nouns.
+    words = [w for w in re.findall(r"[A-Za-z]+", title) if len(w) > 2]
+    if words:
+        capitalized = sum(1 for w in words if w[0].isupper())
+        if capitalized / len(words) > 0.6:
+            return False
+
     for match in _PERSON_RE.finditer(title):
         first, last = match.group(1).lower(), match.group(2).lower()
         if first in _NON_PERSON_WORDS or last in _NON_PERSON_WORDS:

@@ -75,6 +75,13 @@ def test_boost_is_capped():
     assert out["items"][0]["relevance_score"] <= 0.5 + cw.MAX_BOOST + 1e-9
 
 
+def test_single_topic_overlap_is_coincidence_not_coverage():
+    digest = _digest(("Church choir wins national title", "gospel", 0.8))
+    out = cw.boost_candidates(digest, SIGNALS)   # only 'church' overlaps
+    assert "creator_signal" not in out["items"][0]
+    assert out["items"][0]["relevance_score"] == 0.8
+
+
 def test_no_signals_is_a_noop():
     digest = _digest(("Gay pastor story", "church", 0.8))
     out = cw.boost_candidates(digest, {})

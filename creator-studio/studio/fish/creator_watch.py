@@ -50,8 +50,12 @@ MAX_VIDEO_AGE_HOURS = 36
 # Scoring: each matched topic adds BOOST_PER_TOPIC to a story's relevance,
 # up to MAX_BOOST total. Small on purpose — peer overlap should break ties
 # and lift a mid-ranked story, not override our own editorial ranking.
+# A single shared word is coincidence, not coverage: a live run showed
+# one-word overlaps boosting half the digest, so a boost requires at least
+# MIN_MATCHED_TOPICS distinct topics in common.
 BOOST_PER_TOPIC = 0.03
 MAX_BOOST = 0.09
+MIN_MATCHED_TOPICS = 2
 
 RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
 
@@ -76,6 +80,16 @@ _CHAT_STOPWORDS = _STOPWORDS | {
     "done", "doing", "does", "getting", "keep", "kept", "even", "ever",
     "first", "last", "next", "time", "times", "year", "years", "week",
     "money", "somebody", "everyone", "anyone", "thank", "thanks", "please",
+    # Second pass from a live run: these leaked through and matched half the
+    # digest, turning the boost into noise.
+    "also", "other", "others", "another", "around", "should", "would",
+    "could", "once", "whatever", "whenever", "story", "stories", "called",
+    "believe", "believed", "ready", "hour", "hours", "morning", "weekend",
+    "situation", "different", "anyway", "damn", "hell", "yes", "okay",
+    "guys", "friend", "friends", "change", "changed", "play", "played",
+    "start", "started", "stop", "stopped", "point", "place", "house",
+    "home", "work", "working", "worked", "call", "calling", "watch",
+    "watching", "heard", "hear", "seen", "sing", "singing", "song",
 }
 
 
@@ -232,7 +246,8 @@ def boost_candidates(digest: dict, signals: dict[str, dict]) -> dict:
         best: tuple[str, list[str]] | None = None
         for channel, sig in signals.items():
             matched = [t for t in sig["topics"] if t in story_words]
-            if matched and (best is None or len(matched) > len(best[1])):
+            if len(matched) >= MIN_MATCHED_TOPICS and (
+                    best is None or len(matched) > len(best[1])):
                 best = (channel, matched)
         if best:
             channel, matched = best
