@@ -205,6 +205,7 @@ jobs:
             python -m studio.fish.youtube_publisher \
               --script fish-roundup-script.json \
               --video fish-roundup.mp4 \
+              --media-manifest fish-roundup.media.json \
               --format long \
               --privacy private \
               --output fish-youtube-roundup.json || true
@@ -220,7 +221,9 @@ jobs:
             fish-digest-*.json
             fish-script-rank*.json
             fish-reel-rank*.mp4
+            fish-reel-rank*.media.json
             fish-roundup-script.json
             fish-roundup.mp4
+            fish-roundup.media.json
             fish-youtube-*.json
           retention-days: 30

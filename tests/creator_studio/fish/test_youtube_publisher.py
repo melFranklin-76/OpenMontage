@@ -111,3 +111,27 @@ def test_long_title_contains_date_and_count():
 def test_short_format_is_default():
     meta = yt.build_metadata(SCRIPT)
     assert "#Shorts" in meta["snippet"]["title"]
+
+
+MEDIA_ASSETS = [{
+    "provider": "Wikimedia Commons",
+    "creator": "Jane Photographer",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Example.jpg",
+    "attribution": "Jane Photographer via Wikimedia Commons, CC BY-SA 4.0",
+}]
+
+
+def test_long_metadata_includes_media_credit() -> None:
+    meta = yt.build_metadata(ROUNDUP, fmt="long", media_assets=MEDIA_ASSETS)
+    desc = meta["snippet"]["description"]
+    assert "MEDIA CREDITS" in desc
+    assert "Jane Photographer" in desc
+    assert "https://commons.wikimedia.org/wiki/File:Example.jpg" in desc
+    assert "https://creativecommons.org/licenses/by-sa/4.0/" in desc
+
+
+def test_short_metadata_includes_media_credit() -> None:
+    meta = yt.build_metadata(SCRIPT, media_assets=MEDIA_ASSETS)
+    assert "MEDIA CREDIT" in meta["snippet"]["description"]

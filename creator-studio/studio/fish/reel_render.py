@@ -529,11 +529,12 @@ def render_reel(
         _render_caption_png(sec["narration"], png)
         caption_pngs.append(png)
 
-    # 3.5 Background ladder: Pexels b-roll clip → article hero image w/ Ken
-    #     Burns → lane color card. Motion wins when available. Fetch this
+    # 3.5 Background ladder: licensed exact image → Pexels b-roll clip →
+    #     article hero image w/ Ken Burns → lane color card. Fetch this
     #     first so the opening title beat can play over the motion instead of
     #     sitting on a static solid color card.
     from .broll import fetch_broll_for_story, mentions_public_person
+    from .media_resolver import download_media, resolve_story_media, write_media_manifest
 
     story_url = (
         script.get("source_attribution", {}).get("url")
@@ -543,6 +544,7 @@ def render_reel(
 
     hero_bg = tmp_dir / "hero_bg.png"
     have_hero = False
+    licensed_assets = []
 
     def _try_hero() -> bool:
         """Fetch + prepare the article hero image. True if it landed."""
@@ -558,15 +560,26 @@ def render_reel(
             return False
         return True
 
-    # When the story is about a named public person, the article's hero image
-    # is almost always a photo of that person — which beats a stock clip of an
-    # anonymous stand-in while the host says their name.
     broll_clip = None
-    if mentions_public_person(topic) and _try_hero():
+    licensed = resolve_story_media(topic)
+    if licensed:
+        licensed_src = download_media(licensed, tmp_dir / "licensed_raw.bin")
+        if licensed_src:
+            try:
+                _prepare_hero_bg(licensed_src, hero_bg, bg)
+                have_hero = True
+                licensed_assets.append(licensed)
+                print(f"[reel_render] exact {licensed.provider} image", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[reel_render] licensed image prep failed: {exc}", file=sys.stderr)
+
+    # For a named person with no reusable match, the source article's hero is
+    # still more relevant than stock footage.
+    if not have_hero and mentions_public_person(topic) and _try_hero():
         have_hero = True
         print("[reel_render] named person → hero image over stock b-roll",
               file=sys.stderr)
-    else:
+    elif not have_hero:
         broll_clip = fetch_broll_for_story(
             title=topic,
             lane=lane,
@@ -720,6 +733,7 @@ def render_reel(
     if proc.returncode != 0:
         sys.exit(f"[reel_render] ffmpeg failed:\n{proc.stderr[-2000:]}")
 
+    media_manifest = write_media_manifest(output, licensed_assets)
     return {
         "output": str(output),
         "duration_seconds": round(total_padded, 2),
@@ -733,6 +747,8 @@ def render_reel(
         "voice_model": voice if isinstance(voice, str) else voice.name,
         "hero_image": have_hero,
         "broll_clip": broll_clip is not None,
+        "licensed_media": bool(licensed_assets),
+        "media_manifest": str(media_manifest),
         "brand_cards": True,
         "music_bed": music_input_idx is not None,
     }

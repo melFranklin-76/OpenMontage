@@ -31,6 +31,11 @@ import urllib.request
 from pathlib import Path
 
 from .broll import fetch_broll_for_story, mentions_public_person
+from .media_resolver import (
+    download_media,
+    resolve_story_media,
+    write_media_manifest,
+)
 from .reel_render import (
     _fetch_hero_image,
     _piper_tts,
@@ -315,7 +320,8 @@ def render_roundup(
 
     # 3. Pre-fetch per-story visuals.
     #
-    #    Ladder: stock b-roll clip → article hero image → lane color card.
+    #    Ladder: licensed exact image → stock b-roll clip → article hero image
+    #    → lane color card.
     #    BUT when the story is about a named public person, that order flips.
     #    Stock libraries carry no footage of specific people, so a clip would
     #    show some anonymous stand-in while the host names a real person. The
@@ -323,6 +329,7 @@ def render_roundup(
     #    so it wins — Ken Burns on the right face beats motion on the wrong one.
     broll_mp4s: dict[int, Path] = {}
     hero_pngs: dict[int, Path] = {}
+    licensed_assets = []
     for rank, story in stories.items():
         lane = story.get("lane") or ""
         bg = LANE_BG.get(lane, DEFAULT_BG)
@@ -345,6 +352,26 @@ def render_roundup(
                 return False
             hero_pngs[rank] = hero_png
             return True
+
+        licensed = resolve_story_media(title, story.get("summary", ""))
+        if licensed:
+            raw = download_media(licensed, tmp_dir / f"licensed_{rank:02d}_raw.bin")
+            if raw:
+                hero_png = tmp_dir / f"hero_{rank:02d}.png"
+                try:
+                    _prepare_horizontal_hero(raw, hero_png, bg)
+                    hero_pngs[rank] = hero_png
+                    licensed_assets.append(licensed)
+                    print(
+                        f"[long_roundup_render] rank {rank}: exact {licensed.provider} image",
+                        file=sys.stderr,
+                    )
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"[long_roundup_render] licensed image prep failed for rank "
+                        f"{rank}: {exc}", file=sys.stderr,
+                    )
 
         about_a_person = mentions_public_person(title)
         if about_a_person and _try_hero():
@@ -599,6 +626,7 @@ def render_roundup(
     if proc.returncode != 0:
         sys.exit(f"[long_roundup_render] compose failed:\n{proc.stderr[-3000:]}")
 
+    media_manifest = write_media_manifest(output, licensed_assets)
     return {
         "output": str(output),
         "duration_seconds": round(total, 2),
@@ -609,6 +637,8 @@ def render_roundup(
         "story_count": script.get("story_count"),
         "hero_images_used": len(hero_pngs),
         "broll_clips_used": len(broll_mp4s),
+        "licensed_media_used": len(licensed_assets),
+        "media_manifest": str(media_manifest),
         "music_bed": music_input_idx is not None,
     }
 

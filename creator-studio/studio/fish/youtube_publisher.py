@@ -126,7 +126,12 @@ def _format_ts(seconds: int) -> str:
     return f"{m}:{s:02d}"
 
 
-def build_metadata(script: dict, privacy: str = "unlisted", fmt: str = "short") -> dict:
+def build_metadata(
+    script: dict,
+    privacy: str = "unlisted",
+    fmt: str = "short",
+    media_assets: list[dict] | None = None,
+) -> dict:
     """Build YouTube metadata for either a Short or a long-form roundup.
 
     fmt="short":  single-story reel_script — #Shorts title tag, one source.
@@ -134,11 +139,32 @@ def build_metadata(script: dict, privacy: str = "unlisted", fmt: str = "short") 
                   story sources listed, no #Shorts tag.
     """
     if fmt == "long":
-        return _build_long_metadata(script, privacy)
-    return _build_short_metadata(script, privacy)
+        return _build_long_metadata(script, privacy, media_assets or [])
+    return _build_short_metadata(script, privacy, media_assets or [])
 
 
-def _build_short_metadata(script: dict, privacy: str) -> dict:
+def _media_credit_lines(media_assets: list[dict]) -> list[str]:
+    """Format de-duplicated creator/license/source credits for descriptions."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for asset in media_assets:
+        source_url = str(asset.get("source_url", "")).strip()
+        if not source_url or source_url in seen:
+            continue
+        seen.add(source_url)
+        attribution = str(asset.get("attribution", "")).strip()
+        license_name = str(asset.get("license", "")).strip()
+        license_url = str(asset.get("license_url", "")).strip()
+        label = attribution or "Licensed media"
+        if license_name and license_name.lower() not in label.lower():
+            label = f"{label} ({license_name})"
+        lines.append(f"{label}\n{source_url}")
+        if license_url:
+            lines.append(f"License: {license_url}")
+    return lines
+
+
+def _build_short_metadata(script: dict, privacy: str, media_assets: list[dict]) -> dict:
     lane = script.get("lane", "")
     topic = script.get("topic", "").strip() or "Today's LGBT news"
     source = script.get("source_attribution", {})
@@ -163,6 +189,9 @@ def _build_short_metadata(script: dict, privacy: str) -> dict:
         "",
         "From What's the LGBT, Fish? — daily LGBT news, in one minute.",
         "",
+        "MEDIA CREDIT" if media_assets else "",
+        *_media_credit_lines(media_assets),
+        "" if media_assets else "",
         " ".join(f"#{t}" for t in tags),
     ]
     description = "\n".join(line for line in description_lines if line is not None).strip()
@@ -181,7 +210,7 @@ def _build_short_metadata(script: dict, privacy: str) -> dict:
     }
 
 
-def _build_long_metadata(script: dict, privacy: str) -> dict:
+def _build_long_metadata(script: dict, privacy: str, media_assets: list[dict]) -> dict:
     digest_date = script.get("digest_date", "")
     story_count = script.get("story_count", 10)
     stories = script.get("stories", [])
@@ -218,6 +247,9 @@ def _build_long_metadata(script: dict, privacy: str) -> dict:
         "⏱ CHAPTERS",
         *chapter_lines,
         "",
+        "MEDIA CREDITS" if media_assets else "",
+        *_media_credit_lines(media_assets),
+        "" if media_assets else "",
         "📰 SOURCES",
         *source_lines,
         "",
@@ -308,6 +340,10 @@ def main() -> int:
         help="Where to write the upload receipt JSON (default: alongside video)",
     )
     parser.add_argument(
+        "--media-manifest", default="",
+        help="Optional renderer .media.json sidecar for creator/license credits",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Build metadata but skip the upload — useful for CI validation",
     )
@@ -323,7 +359,17 @@ def main() -> int:
     hydrate_token_from_env()
 
     script = json.loads(Path(args.script).read_text())
-    metadata = build_metadata(script, privacy=args.privacy, fmt=args.format)
+    media_assets: list[dict] = []
+    if args.media_manifest:
+        manifest_path = Path(args.media_manifest)
+        if manifest_path.exists():
+            media_assets = json.loads(manifest_path.read_text()).get("assets", [])
+        else:
+            print(f"[youtube_publisher] media manifest not found: {manifest_path}",
+                  file=sys.stderr)
+    metadata = build_metadata(
+        script, privacy=args.privacy, fmt=args.format, media_assets=media_assets,
+    )
 
     if args.dry_run:
         print("[youtube_publisher] --dry-run, metadata only:")
