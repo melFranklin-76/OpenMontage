@@ -134,6 +134,7 @@ jobs:
           DIR=$(ls -d artifact/*/ | head -1)
           SCRIPT="${DIR}fish-script-rank${RANK}.json"
           VIDEO="${DIR}fish-reel-rank${RANK}.mp4"
+          MANIFEST="${DIR}fish-reel-rank${RANK}.media.json"
           if [ ! -f "$SCRIPT" ] || [ ! -f "$VIDEO" ]; then
             echo "Rank ${RANK} script or video missing in artifact; skipping YouTube."
             exit 0
@@ -141,6 +142,7 @@ jobs:
           python -m studio.fish.youtube_publisher \
             --script "$SCRIPT" \
             --video "$VIDEO" \
+            --media-manifest "$MANIFEST" \
             --format short \
             --privacy public \
             --output "fish-youtube-short-rank${RANK}.json"
@@ -166,6 +168,7 @@ jobs:
           python -m studio.fish.instagram_publisher \
             --script "$SCRIPT" \
             --video-url "$VIDEO_URL" \
+            --media-manifest "${DIR}fish-reel-rank${RANK}.media.json" \
             --output "fish-ig-rank${RANK}.json"
           cat "fish-ig-rank${RANK}.json"
 

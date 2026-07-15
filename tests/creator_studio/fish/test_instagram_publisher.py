@@ -73,3 +73,17 @@ def test_no_network_needed_for_url_and_caption_tests():
     # Guard against accidental live dependency in ordinary unit coverage.
     assert callable(ig.build_caption)
     assert callable(ig.build_create_media_url)
+
+
+def test_caption_includes_media_credit() -> None:
+    caption = ig.build_caption(SCRIPT, media_assets=[{
+        "creator": "Jane Photographer",
+        "license": "CC BY-SA 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+        "source_url": "https://commons.wikimedia.org/wiki/File:Example.jpg",
+        "attribution": "Jane Photographer via Wikimedia Commons, CC BY-SA 4.0",
+    }])
+
+    assert "Media credit:" in caption
+    assert "Jane Photographer" in caption
+    assert "https://commons.wikimedia.org/wiki/File:Example.jpg" in caption

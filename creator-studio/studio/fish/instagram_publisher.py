@@ -40,7 +40,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from studio.fish.youtube_publisher import BASE_TAGS, LANE_TAGS
+from studio.fish.youtube_publisher import BASE_TAGS, LANE_TAGS, _media_credit_lines
 
 API_VERSION = "v21.0"
 GRAPH_BASE = f"https://graph.facebook.com/{API_VERSION}"
@@ -58,8 +58,9 @@ def _clean_hashtag(tag: str) -> str:
     return f"#{tag}" if tag else ""
 
 
-def build_caption(script: dict[str, Any]) -> str:
+def build_caption(script: dict[str, Any], media_assets: list[dict] | None = None) -> str:
     """Build an Instagram Reel caption from a reel_script JSON object."""
+    media_assets = media_assets or []
     lane = str(script.get("lane", "")).strip()
     topic = str(script.get("topic", "")).strip() or "Today's LGBT news"
     source = script.get("source_attribution", {}) or {}
@@ -73,6 +74,8 @@ def build_caption(script: dict[str, Any]) -> str:
             tags.append(cleaned)
 
     lines = [topic, ""]
+    if media_assets:
+        lines.extend(["Media credit:", *_media_credit_lines(media_assets), ""])
     if source_name:
         lines.append(f"Source: {source_name}")
     if source_url:
@@ -225,6 +228,10 @@ def main() -> int:
     parser.add_argument("--script", help="Path to reel_script JSON")
     parser.add_argument("--video-url", help="Public MP4 URL for Instagram to fetch")
     parser.add_argument("--output", default="", help="Where to write receipt JSON")
+    parser.add_argument(
+        "--media-manifest", default="",
+        help="Optional renderer .media.json sidecar for creator/license credits",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print caption and planned calls only")
     parser.add_argument("--refresh-token", action="store_true", help="Refresh long-lived IG access token")
     args = parser.parse_args()
@@ -241,7 +248,15 @@ def main() -> int:
 
     ig_user_id = _env_required("IG_USER_ID")
     script = json.loads(Path(args.script).read_text())
-    caption = build_caption(script)
+    media_assets: list[dict] = []
+    if args.media_manifest:
+        manifest_path = Path(args.media_manifest)
+        if manifest_path.exists():
+            media_assets = json.loads(manifest_path.read_text()).get("assets", [])
+        else:
+            print(f"[instagram_publisher] media manifest not found: {manifest_path}",
+                  file=sys.stderr)
+    caption = build_caption(script, media_assets=media_assets)
 
     if args.dry_run:
         planned = {
