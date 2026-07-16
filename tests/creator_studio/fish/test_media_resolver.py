@@ -113,3 +113,33 @@ def test_manifest_deduplicates_source_urls(tmp_path) -> None:
     assert path.name == "fish-roundup.media.json"
     assert len(payload["assets"]) == 1
     assert payload["assets"][0]["creator"] == "Photographer"
+
+
+def test_extract_subjects_ignores_title_case_junk_names() -> None:
+    """Title-Case headlines make every bigram look like a person.
+
+    "Not Feeling The" was extracted as a "person", searched on Wikimedia,
+    and shipped a random concert photo under a Kamala Harris story.
+    """
+    for title in (
+        "Not Feeling The (White) Trans Community Hatred Of Kamala Harris",
+        "Trans Actors Can Be In The Building And Still Get Ignored",
+        "31st GLAAD Media Awards Happening July 29-30",
+    ):
+        for subject in media.extract_subjects(title):
+            assert len(subject.split()) >= 3, (
+                f"short pseudo-name {subject!r} extracted from {title!r}"
+            )
+
+
+def test_extract_subjects_still_finds_people_in_sentence_case() -> None:
+    assert media.extract_subjects(
+        "Tributes pour in for Laverne Cox after historic win"
+    )[0] == "Laverne Cox"
+
+
+def test_match_score_ignores_function_words() -> None:
+    """'not' and 'the' must not count as evidence an image matches."""
+    assert media._match_score(
+        "Not Feeling The", "Singer not on the stage during the concert"
+    ) == 0.0

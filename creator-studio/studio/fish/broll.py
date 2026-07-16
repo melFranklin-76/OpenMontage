@@ -148,6 +148,24 @@ _NON_PERSON_WORDS = {
 _PERSON_RE = re.compile(r"\b([A-Z][a-z]{1,15})\s+([A-Z][a-z'’-]{1,20})\b")
 
 
+def title_is_title_case(title: str) -> bool:
+    """True when a headline capitalizes most words (Title Case).
+
+    In Title Case every bigram looks like a person name, so capital letters
+    carry no proper-noun signal. Name-extraction heuristics (here and in
+    media_resolver) must only trust sentence-case headlines.
+    """
+    words = [w for w in re.findall(r"[A-Za-z]+", title) if len(w) > 2]
+    if not words:
+        return False
+    capitalized = sum(1 for w in words if w[0].isupper())
+    # A proper-noun-dense sentence-case headline ("Marsha P. Johnson honored
+    # at New York memorial") can be mostly capitals too — what separates real
+    # Title Case is the near-total absence of lowercase content words.
+    lowercase_long = sum(1 for w in words if len(w) > 3 and w[0].islower())
+    return capitalized / len(words) > 0.6 and lowercase_long < 2
+
+
 def mentions_public_person(title: str) -> bool:
     """True if the headline looks like it's about a named public person.
 
@@ -159,15 +177,8 @@ def mentions_public_person(title: str) -> bool:
     A false positive is a safe failure: we fall back to the article's own
     image, which is relevant to the story by construction.
     """
-    # Title-case headlines ("Why Trans Elders Deserve Better") capitalize every
-    # word, so the name signal is gone — every bigram looks like a person.
-    # Only trust this heuristic on sentence-case headlines, where capitals
-    # actually mark proper nouns.
-    words = [w for w in re.findall(r"[A-Za-z]+", title) if len(w) > 2]
-    if words:
-        capitalized = sum(1 for w in words if w[0].isupper())
-        if capitalized / len(words) > 0.6:
-            return False
+    if title_is_title_case(title):
+        return False
 
     for match in _PERSON_RE.finditer(title):
         first, last = match.group(1).lower(), match.group(2).lower()
