@@ -580,14 +580,28 @@ def render_reel(
         print("[reel_render] named person → hero image over stock b-roll",
               file=sys.stderr)
     elif not have_hero:
+        # Subject-mapped stock only — never literal headline words, which
+        # Pexels fuzzy-matches into unrelated footage (a "Mother Road"
+        # headline once produced a mom-with-kids clip). If the subject maps
+        # to no stock concept, the article's own image beats guessing, and
+        # generic lane footage is the true last resort.
         broll_clip = fetch_broll_for_story(
             title=topic,
             lane=lane,
             out_path=tmp_dir / "broll_bg.mp4",
             orientation="portrait",
+            mode="specific",
         )
         if not broll_clip and _try_hero():
             have_hero = True
+        if not broll_clip and not have_hero:
+            broll_clip = fetch_broll_for_story(
+                title=topic,
+                lane=lane,
+                out_path=tmp_dir / "broll_bg.mp4",
+                orientation="portrait",
+                mode="lane",
+            )
 
     # Brand lead card + hashtag outro card. Over motion (b-roll or hero) the
     # opening is a transparent overlay so footage shows through; on a solid

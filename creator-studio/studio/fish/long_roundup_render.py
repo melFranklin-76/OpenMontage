@@ -379,33 +379,40 @@ def render_roundup(
                   file=sys.stderr)
             continue
 
+        # Subject-mapped stock ONLY — a clip that matches the story's topic
+        # (library → bookshelves, court → courthouse). No literal-headline
+        # searching: Pexels fuzzy-matches single words, which is how a
+        # "Mother Road" headline once put a mom-with-kids clip under a story
+        # about gay bars.
         clip = fetch_broll_for_story(
             title=title,
             lane=lane,
             out_path=tmp_dir / f"broll_{rank:02d}.mp4",
             orientation="landscape",
+            mode="specific",
         )
         if clip:
             broll_mp4s[rank] = clip
-            continue    # motion beats stills; skip hero fetch
+            continue
 
-        if rank in hero_pngs or not url:
+        # No topic match → the article's own image is the most relevant
+        # visual we can get; generic lane footage is the true last resort.
+        if _try_hero():
             continue
-        raw = tmp_dir / f"hero_{rank:02d}_raw.bin"
-        got = _fetch_hero_image(url, raw)
-        if not got:
-            continue
-        hero_png = tmp_dir / f"hero_{rank:02d}.png"
-        try:
-            _prepare_horizontal_hero(got, hero_png, bg)
-            hero_pngs[rank] = hero_png
-        except Exception as exc:  # noqa: BLE001
-            print(f"[long_roundup_render] hero prep failed for rank {rank}: {exc}",
-                  file=sys.stderr)
+
+        clip = fetch_broll_for_story(
+            title=title,
+            lane=lane,
+            out_path=tmp_dir / f"broll_{rank:02d}.mp4",
+            orientation="landscape",
+            mode="lane",
+        )
+        if clip:
+            broll_mp4s[rank] = clip
 
     # Fetch a b-roll clip for the intro/outro/cold_open so they aren't flat
-    # color screens. Seed it from the lead story's headline so the opening
-    # footage is relevant to today's top story rather than generic stock.
+    # color screens. Seeded from the lead story's subject when it maps to a
+    # stock concept; otherwise the show-default pride/community footage.
     generic_broll: Path | None = None
     top_story_title = ""
     if script.get("stories"):
@@ -414,6 +421,7 @@ def render_roundup(
         title=top_story_title, lane="",
         out_path=tmp_dir / "broll_generic.mp4",
         orientation="landscape",
+        mode="any",
     )
     if _generic:
         generic_broll = _generic
