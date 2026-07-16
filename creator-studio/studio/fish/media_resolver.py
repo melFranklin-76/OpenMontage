@@ -16,6 +16,9 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .broll import _NON_PERSON_WORDS as _BROLL_NON_PERSON_WORDS
+from .broll import title_is_title_case
+
 WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php"
 OPENVERSE_API = "https://api.openverse.org/v1/images/"
 USER_AGENT = "OpenMontage-FISH/1.0 (licensed editorial media resolver)"
@@ -26,12 +29,25 @@ _CONTENT_WORDS = {
     "lgbtq", "rights", "pride", "news", "says", "said", "new", "after",
     "about", "from", "with", "that", "this", "their", "they", "will",
     "story", "report", "exclusive", "breaking", "today",
+    # Function words. These previously counted as match tokens, so a random
+    # Commons image whose description contained "not" and "the" scored 0.67
+    # against the junk subject "Not Feeling The" and shipped as the story
+    # visual. Match relevance must rest on words that carry meaning.
+    "the", "and", "for", "not", "was", "were", "are", "has", "have", "had",
+    "been", "being", "his", "her", "him", "she", "our", "your", "its",
+    "who", "why", "how", "what", "when", "where", "which", "while",
+    "can", "could", "may", "might", "must", "shall", "should", "would",
+    "did", "does", "doing", "done", "get", "gets", "got", "still", "even",
+    "ever", "just", "only", "over", "under", "out", "off", "own", "all",
+    "any", "some", "such", "more", "most", "other", "into", "onto", "than",
+    "then", "them", "there", "here", "also", "very", "too", "again", "once",
+    "against", "between", "before", "during", "feeling", "back",
 }
 _NON_PERSON_WORDS = {
     "Supreme", "Court", "White", "House", "New", "York", "Los", "Angeles",
     "United", "States", "Pride", "Month", "Stonewall", "Inn", "City",
     "State", "University", "Congress", "Senate", "National", "World",
-}
+} | {w.capitalize() for w in _BROLL_NON_PERSON_WORDS}
 _PERSON_RE = re.compile(
     r"\b([A-Z][a-z]{1,20}(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-z'’-]{1,24}){1,2})\b"
 )
@@ -88,13 +104,19 @@ def is_approved_license(value: str) -> bool:
 def extract_subjects(title: str) -> list[str]:
     """Extract likely people first, followed by one event/topic query."""
     subjects: list[str] = []
-    for match in _PERSON_RE.finditer(title):
-        candidate = match.group(1).strip()
-        words = candidate.split()
-        if any(word in _NON_PERSON_WORDS for word in words):
-            continue
-        if candidate not in subjects:
-            subjects.append(candidate)
+    # In a Title-Case headline every bigram looks like a name — that's how
+    # "Not Feeling The" got extracted as a "person" and searched on Commons.
+    # Only sentence-case headlines carry a real name signal.
+    if not title_is_title_case(title):
+        for match in _PERSON_RE.finditer(title):
+            candidate = match.group(1).strip()
+            words = candidate.split()
+            if any(word in _NON_PERSON_WORDS for word in words):
+                continue
+            if any(word.lower().rstrip(".") in _CONTENT_WORDS for word in words):
+                continue
+            if candidate not in subjects:
+                subjects.append(candidate)
 
     quoted = re.findall(r"[\"“]([^\"”]{4,80})[\"”]", title)
     for phrase in quoted:
@@ -114,7 +136,7 @@ def extract_subjects(title: str) -> list[str]:
 def _tokens(value: str) -> set[str]:
     return {
         word.lower() for word in re.findall(r"[A-Za-z][A-Za-z'’-]+", value)
-        if len(word) > 2 and word.lower() not in _CONTENT_WORDS
+        if len(word) > 3 and word.lower() not in _CONTENT_WORDS
     }
 
 
@@ -166,7 +188,7 @@ def search_wikimedia(subject: str, timeout: int = 10) -> list[MediaAsset]:
             _plain(meta.get("Categories")),
         ))
         score = _match_score(subject, description)
-        if score < 0.5:
+        if score < 0.7:
             continue
         creator = _plain(meta.get("Artist")) or "Unknown creator"
         source_url = _plain(meta.get("DescriptionUrl")) or info.get("descriptionurl", "")
@@ -205,7 +227,7 @@ def search_openverse(subject: str, timeout: int = 10) -> list[MediaAsset]:
             _plain(item.get("creator")),
         ))
         score = _match_score(subject, candidate_text)
-        if score < 0.5:
+        if score < 0.7:
             continue
         source_url = item.get("foreign_landing_url") or item.get("detail_url") or ""
         download_url = item.get("url") or item.get("thumbnail") or ""
@@ -230,6 +252,10 @@ def resolve_story_media(title: str, summary: str = "") -> MediaAsset | None:
     """Return the strongest exact reusable image, or None on any miss."""
     del summary  # Reserved for future entity extraction; titles are safer.
     for subject in extract_subjects(title):
+        # A subject needs at least two meaningful tokens to be searchable —
+        # a single word matches far too much of any image library.
+        if len(_tokens(subject)) < 2:
+            continue
         candidates: list[MediaAsset] = []
         for search in (search_wikimedia, search_openverse):
             try:
