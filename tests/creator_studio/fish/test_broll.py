@@ -7,28 +7,58 @@ from pathlib import Path
 from studio.fish import broll
 
 
-def test_build_query_strips_stopwords():
-    q = broll.build_query("The community rallies at the Stonewall after the ruling", "gay")
-    assert "the" not in q.split()
-    assert "community" in q
+def _capture_queries(monkeypatch):
+    """Stub search_broll, recording every query the ladder sends out."""
+    sent: list[str] = []
+
+    def fake_search(query, orientation="landscape", **kw):
+        sent.append(query)
+        return None
+
+    monkeypatch.setenv("PEXELS_API_KEY", "test-key")
+    monkeypatch.setattr(broll, "search_broll", fake_search)
+    return sent
 
 
-def test_build_query_is_story_specific_not_lane_flavored():
-    """The primary query must reflect the story, not a generic lane booster.
+def test_fetch_never_sends_raw_headline_words(monkeypatch, tmp_path):
+    """Literal headline words must never reach Pexels.
 
-    Appending 'gay pride rainbow crowd' to every search made Pexels return
-    generic pride footage instead of story-relevant clips, so the lane term
-    is reserved for the fallback query only.
+    Pexels fuzzy-matches any single word: a headline ending in "the Mother
+    Road" once returned a mom-with-kids clip under a story about gay bars.
+    Only curated concept queries (topic map, lane term) may go out.
     """
-    q = broll.build_query("Supreme Court hears marriage case", "gay")
-    assert "supreme" in q
-    assert "court" in q
-    assert "pride" not in q  # lane booster must not pollute the primary query
+    sent = _capture_queries(monkeypatch)
+    broll.fetch_broll_for_story(
+        "Dispatches from Route 66: What I found at the end of the Mother Road",
+        "lesbian", tmp_path / "x.mp4",
+    )
+    joined = " ".join(sent)
+    assert "mother" not in joined and "route" not in joined
+    assert sent == [broll.LANE_SEARCH_TERMS["lesbian"]]
 
 
-def test_build_query_empty_title_falls_back():
-    q = broll.build_query("", "")
-    assert q == broll.DEFAULT_SEARCH_TERM
+def test_fetch_mode_specific_sends_only_topic_query(monkeypatch, tmp_path):
+    sent = _capture_queries(monkeypatch)
+    broll.fetch_broll_for_story(
+        "Historic gay bar closes after 40 years", "gay",
+        tmp_path / "x.mp4", mode="specific",
+    )
+    assert sent == ["nightclub stage lights"]
+
+    sent.clear()
+    broll.fetch_broll_for_story(
+        "Zzzz qqqq wwww", "gay", tmp_path / "x.mp4", mode="specific",
+    )
+    assert sent == []      # no topic match → no query at all in specific mode
+
+
+def test_fetch_mode_lane_sends_only_lane_term(monkeypatch, tmp_path):
+    sent = _capture_queries(monkeypatch)
+    broll.fetch_broll_for_story(
+        "Historic gay bar closes after 40 years", "gay",
+        tmp_path / "x.mp4", mode="lane",
+    )
+    assert sent == [broll.LANE_SEARCH_TERMS["gay"]]
 
 
 def test_topic_query_maps_story_subject_to_stock_concept():

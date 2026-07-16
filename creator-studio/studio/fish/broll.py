@@ -177,20 +177,6 @@ def mentions_public_person(title: str) -> bool:
     return False
 
 
-def build_query(title: str, lane: str = "") -> str:
-    """Deterministic, literal search query from a story title.
-
-    Keeps the first few content words of the headline. The ``lane`` argument
-    is accepted for signature compatibility but intentionally not appended —
-    the lane term is reserved for the last-resort fallback in
-    ``fetch_broll_for_story``.
-    """
-    words = re.findall(r"[A-Za-z][A-Za-z'-]+", title.lower())
-    content = [w for w in words if w not in _STOPWORDS and len(w) > 2]
-    head = " ".join(content[:5])
-    return head or DEFAULT_SEARCH_TERM
-
-
 def _api_key() -> str:
     return os.environ.get("PEXELS_API_KEY", "")
 
@@ -263,26 +249,32 @@ def fetch_broll_for_story(
     lane: str,
     out_path: Path,
     orientation: str = "landscape",
+    mode: str = "any",
 ) -> Path | None:
-    """One-call ladder step: query → search → download. None on any miss.
+    """Fetch a stock clip for a story. None on any miss.
 
-    Search order, most story-relevant first:
+    Raw headline words are NEVER sent to Pexels. That was the root of the
+    worst mismatches: Pexels fuzzy-matches any single word, so a headline
+    like "…the end of the Mother Road" returned footage of a mother playing
+    with her kids under a gay-bar story. Only curated concept queries go out:
 
-    1. The story's *subject* mapped to a stock-footage concept — a library ban
-       gets bookshelves, a court ruling gets a courthouse. Stock libraries
-       carry these, so this is the query that actually lands.
-    2. The literal headline words, in case the subject is something stock
-       happens to cover directly.
-    3. The lane term, as a last resort so we always have *something*.
+    - mode="specific": the story's subject mapped through TOPIC_VISUALS
+      (library ban → bookshelves, court ruling → courthouse). Nothing else —
+      renderers use this so they can prefer the article's own hero image over
+      a generic clip when the subject doesn't map.
+    - mode="lane": the lane term / show default only. The true last resort.
+    - mode="any": specific, then lane, in one call (for callers that have no
+      hero-image rung between them).
     """
     if not _api_key():
         return None
 
-    queries = [q for q in (
-        topic_query(title),
-        build_query(title, lane),
-        LANE_SEARCH_TERMS.get(lane, DEFAULT_SEARCH_TERM),
-    ) if q]
+    queries: list[str] = []
+    if mode in ("specific", "any"):
+        queries.append(topic_query(title))
+    if mode in ("lane", "any"):
+        queries.append(LANE_SEARCH_TERMS.get(lane, DEFAULT_SEARCH_TERM))
+    queries = [q for q in queries if q]
 
     for query in queries:
         url = search_broll(query, orientation=orientation)
