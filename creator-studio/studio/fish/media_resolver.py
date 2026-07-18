@@ -159,15 +159,22 @@ def _get_json(url: str, timeout: int = 10) -> dict:
         return json.loads(response.read())
 
 
-def search_wikimedia(subject: str, timeout: int = 10) -> list[MediaAsset]:
+# Commons hosts real public-domain FOOTAGE of newsmakers — C-SPAN floor
+# speeches, White House pool video, government hearings. Motion of the actual
+# person beats a still photo, so we search video first. Originals can be
+# enormous; cap what we're willing to pull into a CI render.
+_MAX_VIDEO_BYTES = 200_000_000
+
+
+def _wikimedia_pass(gsrsearch: str, subject: str, timeout: int) -> list[MediaAsset]:
     params = urllib.parse.urlencode({
         "action": "query",
         "generator": "search",
-        "gsrsearch": subject,
+        "gsrsearch": gsrsearch,
         "gsrnamespace": 6,
         "gsrlimit": 8,
         "prop": "imageinfo",
-        "iiprop": "url|mime|extmetadata",
+        "iiprop": "url|mime|size|extmetadata",
         "iiurlwidth": 1920,
         "format": "json",
         "origin": "*",
@@ -176,7 +183,14 @@ def search_wikimedia(subject: str, timeout: int = 10) -> list[MediaAsset]:
     assets: list[MediaAsset] = []
     for page in data.get("query", {}).get("pages", {}).values():
         info = (page.get("imageinfo") or [{}])[0]
-        if not str(info.get("mime", "")).startswith("image/"):
+        mime = str(info.get("mime", ""))
+        if mime.startswith("image/"):
+            kind = "image"
+        elif mime.startswith("video/") or mime == "application/ogg":
+            kind = "video"
+            if int(info.get("size") or 0) > _MAX_VIDEO_BYTES:
+                continue
+        else:
             continue
         meta = info.get("extmetadata") or {}
         license_name = _plain(meta.get("LicenseShortName"))
@@ -192,19 +206,45 @@ def search_wikimedia(subject: str, timeout: int = 10) -> list[MediaAsset]:
             continue
         creator = _plain(meta.get("Artist")) or "Unknown creator"
         source_url = _plain(meta.get("DescriptionUrl")) or info.get("descriptionurl", "")
-        download_url = info.get("thumburl") or info.get("url", "")
+        # A video's "thumburl" is a JPEG poster frame — the real file is "url".
+        if kind == "video":
+            download_url = info.get("url", "")
+        else:
+            download_url = info.get("thumburl") or info.get("url", "")
         license_url = _plain(meta.get("LicenseUrl"))
         if not source_url or not download_url:
             continue
         attribution = f"{creator} via Wikimedia Commons, {license_name}"
         assets.append(MediaAsset(
-            subject=subject, kind="image", provider="Wikimedia Commons",
+            subject=subject, kind=kind, provider="Wikimedia Commons",
             source_url=source_url, download_url=download_url, creator=creator,
             license=license_name, license_url=license_url,
             attribution=attribution, rights_status="approved_open",
-            match_score=score, query=subject,
+            match_score=score, query=gsrsearch,
         ))
-    return sorted(assets, key=lambda asset: asset.match_score, reverse=True)
+    return assets
+
+
+def search_wikimedia(subject: str, timeout: int = 10) -> list[MediaAsset]:
+    """Search Commons for the subject — real footage first, then stills."""
+    assets: list[MediaAsset] = []
+    seen: set[str] = set()
+    for gsrsearch in (f"filetype:video {subject}", subject):
+        try:
+            found = _wikimedia_pass(gsrsearch, subject, timeout)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[media_resolver] wikimedia pass failed ({gsrsearch!r}): {exc}",
+                  file=sys.stderr)
+            continue
+        for asset in found:
+            if asset.source_url not in seen:
+                seen.add(asset.source_url)
+                assets.append(asset)
+    return sorted(
+        assets,
+        key=lambda a: (a.match_score, a.kind == "video"),
+        reverse=True,
+    )
 
 
 def search_openverse(subject: str, timeout: int = 10) -> list[MediaAsset]:
@@ -267,20 +307,27 @@ def resolve_story_media(title: str, summary: str = "") -> MediaAsset | None:
                 print(f"[media_resolver] {search.__name__} failed for {subject!r}: {exc}",
                       file=sys.stderr)
         if candidates:
-            return max(candidates, key=lambda asset: asset.match_score)
+            return max(
+                candidates,
+                key=lambda asset: (asset.match_score, asset.kind == "video"),
+            )
     return None
 
 
-def download_media(asset: MediaAsset, out_path: Path, timeout: int = 30) -> Path | None:
-    """Download a resolved image after basic content and size validation."""
+def download_media(asset: MediaAsset, out_path: Path, timeout: int = 120) -> Path | None:
+    """Download a resolved asset after basic content and size validation."""
     try:
         req = urllib.request.Request(asset.download_url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=timeout) as response:
             content_type = response.headers.get("Content-Type", "")
             data = response.read()
-        if content_type and not content_type.startswith("image/"):
+        if asset.kind == "video":
+            allowed = ("video/", "application/ogg")
+        else:
+            allowed = ("image/",)
+        if content_type and not content_type.startswith(allowed):
             return None
-        if len(data) < 10_000:
+        if len(data) < (100_000 if asset.kind == "video" else 10_000):
             return None
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(data)

@@ -563,19 +563,33 @@ def render_reel(
     broll_clip = None
     licensed = resolve_story_media(topic)
     if licensed:
-        licensed_src = download_media(licensed, tmp_dir / "licensed_raw.bin")
-        if licensed_src:
-            try:
-                _prepare_hero_bg(licensed_src, hero_bg, bg)
-                have_hero = True
+        if licensed.kind == "video":
+            # Real footage of the story's subject (e.g. C-SPAN/government
+            # video from Commons) — play it as the background, don't still it.
+            clip = download_media(licensed, tmp_dir / "licensed_clip.bin")
+            if clip:
+                broll_clip = clip
                 licensed_assets.append(licensed)
-                print(f"[reel_render] exact {licensed.provider} image", file=sys.stderr)
-            except Exception as exc:  # noqa: BLE001
-                print(f"[reel_render] licensed image prep failed: {exc}", file=sys.stderr)
+                print(f"[reel_render] exact {licensed.provider} FOOTAGE",
+                      file=sys.stderr)
+        else:
+            licensed_src = download_media(licensed, tmp_dir / "licensed_raw.bin")
+            if licensed_src:
+                try:
+                    _prepare_hero_bg(licensed_src, hero_bg, bg)
+                    have_hero = True
+                    licensed_assets.append(licensed)
+                    print(f"[reel_render] exact {licensed.provider} image",
+                          file=sys.stderr)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[reel_render] licensed image prep failed: {exc}",
+                          file=sys.stderr)
 
     # For a named person with no reusable match, the source article's hero is
     # still more relevant than stock footage.
-    if not have_hero and mentions_public_person(topic) and _try_hero():
+    if broll_clip is not None:
+        pass    # licensed footage already carries the background
+    elif not have_hero and mentions_public_person(topic) and _try_hero():
         have_hero = True
         print("[reel_render] named person → hero image over stock b-roll",
               file=sys.stderr)

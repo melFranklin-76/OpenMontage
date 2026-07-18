@@ -354,7 +354,19 @@ def render_roundup(
             return True
 
         licensed = resolve_story_media(title, story.get("summary", ""))
-        if licensed:
+        if licensed and licensed.kind == "video":
+            # Real footage of the story's subject (C-SPAN/government video on
+            # Commons) — becomes the moving background for this chapter.
+            clip = download_media(licensed, tmp_dir / f"licensed_{rank:02d}.bin")
+            if clip:
+                broll_mp4s[rank] = clip
+                licensed_assets.append(licensed)
+                print(
+                    f"[long_roundup_render] rank {rank}: exact "
+                    f"{licensed.provider} FOOTAGE", file=sys.stderr,
+                )
+                continue
+        elif licensed:
             raw = download_media(licensed, tmp_dir / f"licensed_{rank:02d}_raw.bin")
             if raw:
                 hero_png = tmp_dir / f"hero_{rank:02d}.png"
