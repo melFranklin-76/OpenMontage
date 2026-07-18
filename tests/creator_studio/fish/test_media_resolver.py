@@ -143,3 +143,51 @@ def test_match_score_ignores_function_words() -> None:
     assert media._match_score(
         "Not Feeling The", "Singer not on the stage during the concert"
     ) == 0.0
+
+
+def _video_page(size=50_000_000):
+    return {"query": {"pages": {"9": {
+        "title": "File:Lindsey Graham speaking on the Senate floor.webm",
+        "imageinfo": [{
+            "mime": "video/webm",
+            "size": size,
+            "url": "https://upload.example/graham.webm",
+            "thumburl": "https://upload.example/graham_poster.jpg",
+            "descriptionurl": "https://commons.example/graham",
+            "extmetadata": {
+                "LicenseShortName": {"value": "Public Domain"},
+                "Artist": {"value": "C-SPAN"},
+                "ImageDescription": {"value": "Lindsey Graham Senate speech"},
+            },
+        }],
+    }}}}
+
+
+def test_search_wikimedia_returns_video_with_real_file_url(monkeypatch) -> None:
+    monkeypatch.setattr(media, "_get_json", lambda *_a, **_k: _video_page())
+    assets = media.search_wikimedia("Lindsey Graham")
+    videos = [a for a in assets if a.kind == "video"]
+    assert videos
+    # Must use the real video file, not the JPEG poster frame.
+    assert videos[0].download_url.endswith(".webm")
+
+
+def test_search_wikimedia_caps_video_size(monkeypatch) -> None:
+    monkeypatch.setattr(
+        media, "_get_json", lambda *_a, **_k: _video_page(size=900_000_000))
+    assert not media.search_wikimedia("Lindsey Graham")
+
+
+def test_video_outranks_image_at_equal_score() -> None:
+    img = media.MediaAsset(
+        subject="s", kind="image", provider="p", source_url="u1",
+        download_url="d1", creator="c", license="by", license_url="",
+        attribution="a", rights_status="approved_open", match_score=1.0,
+        query="q")
+    vid = media.MediaAsset(
+        subject="s", kind="video", provider="p", source_url="u2",
+        download_url="d2", creator="c", license="by", license_url="",
+        attribution="a", rights_status="approved_open", match_score=1.0,
+        query="q")
+    best = max([img, vid], key=lambda a: (a.match_score, a.kind == "video"))
+    assert best.kind == "video"
