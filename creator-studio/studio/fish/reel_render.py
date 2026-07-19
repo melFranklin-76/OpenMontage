@@ -568,7 +568,7 @@ def _finish_reel_remotion(
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(f"[reel_render] base compose failed:\n{proc.stderr[-2000:]}")
+        raise RuntimeError(f"base compose failed:\n{proc.stderr[-2000:]}")
 
     # 2. Composition props: word captions + animated brand cards.
     captions = _build_word_captions(
@@ -609,19 +609,21 @@ def _finish_reel_remotion(
     props_path = tmp_dir / "remotion_props.json"
     props_path.write_text(json.dumps(props))
 
-    # 3. Render TalkingHead over the base track.
+    # 3. Render TalkingHead over the base track. The CLI runs with the
+    # composer as cwd (to use its node_modules), so every path we hand it
+    # must be absolute — a relative --props broke every CI render.
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
         proc = subprocess.run(
             ["npx", "remotion", "render",
              str(composer / "src" / "index.tsx"), "TalkingHead",
-             str(output.resolve()), "--props", str(props_path)],
+             str(output.resolve()), "--props", str(props_path.resolve())],
             capture_output=True, text=True, cwd=composer, timeout=1800,
         )
     finally:
         staged.unlink(missing_ok=True)
     if proc.returncode != 0:
-        sys.exit(f"[reel_render] remotion render failed:\n{proc.stderr[-3000:]}")
+        raise RuntimeError(f"remotion render failed:\n{proc.stderr[-3000:]}")
 
     return {
         "output": str(output),
@@ -890,15 +892,21 @@ def render_reel(
         bg_label = "0:v"
 
     if engine == "remotion":
-        return _finish_reel_remotion(
-            script=script, output=output, tmp_dir=tmp_dir,
-            music_path=music_path, inputs=inputs,
-            bg_filter_prefix=bg_filter_prefix, bg_label=bg_label,
-            sections=sections, seg_durations=seg_durations,
-            seg_words=seg_words, total=total, total_padded=total_padded,
-            lane=lane, bg=bg, voice=voice, broll_clip=broll_clip,
-            have_hero=have_hero,
-        )
+        try:
+            return _finish_reel_remotion(
+                script=script, output=output, tmp_dir=tmp_dir,
+                music_path=music_path, inputs=inputs,
+                bg_filter_prefix=bg_filter_prefix, bg_label=bg_label,
+                sections=sections, seg_durations=seg_durations,
+                seg_words=seg_words, total=total, total_padded=total_padded,
+                lane=lane, bg=bg, voice=voice, broll_clip=broll_clip,
+                have_hero=have_hero,
+            )
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            # Typography must never sink the episode — degrade to the ffmpeg
+            # caption path and keep publishing.
+            print(f"[reel_render] remotion failed, falling back to ffmpeg:\n{exc}",
+                  file=sys.stderr)
 
     # Add brand lead + outro cards + captions as extra inputs
     extra_pngs = [lead_card] + caption_pngs + [outro_card]
