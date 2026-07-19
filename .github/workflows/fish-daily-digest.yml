@@ -80,6 +80,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install feedparser jsonschema pyyaml pillow edge-tts yt-dlp
 
+      - name: Install Remotion composer (word-highlight captions for Shorts)
+        run: npm ci --prefix remotion-composer
+
       - name: Run live daily digest
         run: |
           python -m studio.fish.daily_digest \

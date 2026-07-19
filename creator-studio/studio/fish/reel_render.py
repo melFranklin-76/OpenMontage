@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -307,19 +308,36 @@ def _clean_for_tts(text: str) -> str:
     return text
 
 
-def _edge_tts(text: str, out_wav: Path, voice: str | None = None) -> None:
-    """Generate audio via Edge TTS (async) and convert to WAV for ffmpeg."""
+def _edge_tts(text: str, out_wav: Path, voice: str | None = None) -> list[dict]:
+    """Generate audio via Edge TTS and convert to WAV for ffmpeg.
+
+    Returns word-level timings [{word, startMs, endMs}, ...] harvested from
+    the stream's WordBoundary events (offsets are 100-nanosecond ticks).
+    They drive the Remotion word-highlight captions.
+    """
     import asyncio
 
     voice = voice or DEFAULT_EDGE_VOICE
     out_wav.parent.mkdir(parents=True, exist_ok=True)
     mp3_path = out_wav.with_suffix(".mp3")
 
-    async def _generate():
+    async def _generate() -> list[dict]:
         communicate = edge_tts.Communicate(text, voice, rate=EDGE_TTS_RATE)
-        await communicate.save(str(mp3_path))
+        words: list[dict] = []
+        with open(mp3_path, "wb") as f:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    f.write(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    start_ms = chunk["offset"] / 10_000
+                    words.append({
+                        "word": chunk["text"],
+                        "startMs": round(start_ms, 1),
+                        "endMs": round(start_ms + chunk["duration"] / 10_000, 1),
+                    })
+        return words
 
-    asyncio.run(_generate())
+    words = asyncio.run(_generate())
 
     if not mp3_path.exists() or mp3_path.stat().st_size < 100:
         raise RuntimeError(f"Edge TTS failed for voice {voice}")
@@ -332,6 +350,7 @@ def _edge_tts(text: str, out_wav: Path, voice: str | None = None) -> None:
     mp3_path.unlink(missing_ok=True)
     if proc.returncode != 0 or not out_wav.exists():
         raise RuntimeError(f"Edge TTS mp3→wav conversion failed: {proc.stderr}")
+    return words
 
 
 def _piper_tts_raw(text: str, out_wav: Path, model: Path | None = None) -> None:
@@ -349,15 +368,19 @@ def _piper_tts_raw(text: str, out_wav: Path, model: Path | None = None) -> None:
         raise RuntimeError(f"Piper failed: {proc.stderr}")
 
 
-def _piper_tts(text: str, out_wav: Path, model: Path | str | None = None) -> None:
-    """Generate speech — Edge TTS if available, Piper as fallback."""
+def _piper_tts(text: str, out_wav: Path, model: Path | str | None = None) -> list[dict] | None:
+    """Generate speech — Edge TTS if available, Piper as fallback.
+
+    Returns word timings when Edge produced them, else None (Piper has no
+    word boundaries; callers synthesize even spacing if they need captions).
+    """
     text = _clean_for_tts(text)
     if USE_EDGE_TTS:
         voice = model if isinstance(model, str) else None
-        _edge_tts(text, out_wav, voice=voice)
-    else:
-        piper_model = model if isinstance(model, Path) else None
-        _piper_tts_raw(text, out_wav, model=piper_model)
+        return _edge_tts(text, out_wav, voice=voice)
+    piper_model = model if isinstance(model, Path) else None
+    _piper_tts_raw(text, out_wav, model=piper_model)
+    return None
 
 
 def _wav_duration(wav: Path) -> float:
@@ -453,19 +476,199 @@ def _render_caption_png(text: str, out_png: Path) -> None:
 
 # ── render ───────────────────────────────────────────────────────────────────
 
+def _remotion_available() -> bool:
+    """True when the Remotion composer can render (npx + installed deps)."""
+    if shutil.which("npx") is None:
+        return False
+    composer = Path(__file__).resolve().parents[3] / "remotion-composer"
+    return (composer / "node_modules" / "remotion").exists()
+
+
+def _build_word_captions(
+    sections: list[dict],
+    seg_durations: list[float],
+    seg_words: list[list[dict] | None],
+    lead_seconds: float,
+) -> list[dict]:
+    """Global word-caption track: per-section timings shifted onto the reel
+    timeline. Sections without real timings (Piper) get even spacing so the
+    captions still track the voice approximately."""
+    captions: list[dict] = []
+    cursor_ms = lead_seconds * 1000
+    for sec, dur, words in zip(sections, seg_durations, seg_words):
+        if words:
+            for w in words:
+                captions.append({
+                    "word": w["word"],
+                    "startMs": round(cursor_ms + w["startMs"], 1),
+                    "endMs": round(cursor_ms + w["endMs"], 1),
+                })
+        else:
+            tokens = sec["narration"].split()
+            if tokens:
+                step = (dur * 1000) / len(tokens)
+                for j, tok in enumerate(tokens):
+                    captions.append({
+                        "word": tok,
+                        "startMs": round(cursor_ms + j * step, 1),
+                        "endMs": round(cursor_ms + (j + 1) * step, 1),
+                    })
+        cursor_ms += dur * 1000
+    return captions
+
+
+# Word-highlight color per lane, so the captions carry the lane identity the
+# old solid background cards used to.
+LANE_HIGHLIGHT = {
+    "gay":         "#38BDF8",
+    "lesbian":     "#FB7185",
+    "bisexual":    "#A78BFA",
+    "trans":       "#34D399",
+}
+DEFAULT_HIGHLIGHT = "#22D3EE"
+
+
+def _finish_reel_remotion(
+    *, script: dict, output: Path, tmp_dir: Path, music_path: Path | None,
+    inputs: list[str], bg_filter_prefix: str, bg_label: str,
+    sections: list[dict], seg_durations: list[float],
+    seg_words: list[list[dict] | None], total: float, total_padded: float,
+    lane: str, bg: str, voice, broll_clip, have_hero: bool,
+) -> dict:
+    """Remotion finish: ffmpeg builds the background+voice base track, then
+    the TalkingHead composition lays word-highlight captions and animated
+    brand cards on top — the shorts-native look, fully unattended."""
+    # 1. Base video: background motion + voice (+ ducked music), no overlays.
+    base_mp4 = tmp_dir / "remotion_base.mp4"
+    base_inputs = list(inputs)
+    music_idx = None
+    if music_path and music_path.exists():
+        base_inputs += ["-stream_loop", "-1", "-i", str(music_path)]
+        music_idx = 2
+    filter_complex = bg_filter_prefix.rstrip(";")
+    audio_map = "1:a"
+    if music_idx is not None:
+        music_part = (
+            f"[{music_idx}:a]volume={MUSIC_DUCK_DB}dB,"
+            f"atrim=0:{total_padded:.3f},asetpts=PTS-STARTPTS[mus];"
+            f"[1:a][mus]amix=inputs=2:duration=first:dropout_transition=0[amix]"
+        )
+        filter_complex = f"{filter_complex};{music_part}" if filter_complex else music_part
+        audio_map = "[amix]"
+    cmd = ["ffmpeg", "-y", *base_inputs]
+    if filter_complex:
+        cmd += ["-filter_complex", filter_complex]
+    cmd += [
+        "-map", f"[{bg_label}]" if bg_label == "bg" else bg_label,
+        "-map", audio_map,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-t", f"{total_padded:.3f}",
+        str(base_mp4),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"[reel_render] base compose failed:\n{proc.stderr[-2000:]}")
+
+    # 2. Composition props: word captions + animated brand cards.
+    captions = _build_word_captions(
+        sections, seg_durations, seg_words, BRAND_LEAD_SECONDS)
+    hashtags = " ".join(script.get("hashtags", [])[:4])
+    overlays = [
+        {
+            "type": "hero_title", "position": "full_overlay",
+            "in_seconds": 0.0, "out_seconds": BRAND_LEAD_SECONDS,
+            "text": script.get("topic", "")[:80],
+            "subtitle": "What's the LGBT, Fish?",
+        },
+        {
+            "type": "text_card", "position": "full_overlay",
+            "in_seconds": round(total_padded - BRAND_OUTRO_SECONDS, 3),
+            "out_seconds": round(total_padded, 3),
+            "text": f"{hashtags or '#whatsthelgbtfish'}\nFollow for daily LGBT news",
+        },
+    ]
+    # The renderer only streams http(s) or bundled public/ assets, so stage
+    # the base track in the composer's public dir and pass its bare name
+    # (TalkingHead resolves it via staticFile).
+    composer = Path(__file__).resolve().parents[3] / "remotion-composer"
+    staged_name = f"fish_base_{os.getpid()}_{output.stem}.mp4"
+    staged = composer / "public" / staged_name
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(base_mp4, staged)
+
+    props = {
+        "videoSrc": staged_name,
+        "captions": captions,
+        "overlays": overlays,
+        "wordsPerPage": 4,
+        "fontSize": 58,
+        "highlightColor": LANE_HIGHLIGHT.get(lane, DEFAULT_HIGHLIGHT),
+        "durationSeconds": round(total_padded, 3),
+    }
+    props_path = tmp_dir / "remotion_props.json"
+    props_path.write_text(json.dumps(props))
+
+    # 3. Render TalkingHead over the base track.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            ["npx", "remotion", "render",
+             str(composer / "src" / "index.tsx"), "TalkingHead",
+             str(output.resolve()), "--props", str(props_path)],
+            capture_output=True, text=True, cwd=composer, timeout=1800,
+        )
+    finally:
+        staged.unlink(missing_ok=True)
+    if proc.returncode != 0:
+        sys.exit(f"[reel_render] remotion render failed:\n{proc.stderr[-3000:]}")
+
+    return {
+        "output": str(output),
+        "engine": "remotion",
+        "duration_seconds": round(total_padded, 2),
+        "voice_seconds": round(total, 2),
+        "sections": len(sections),
+        "lane": lane,
+        "topic": script.get("topic", ""),
+        "background_color": bg,
+        "resolution": f"{WIDTH}x{HEIGHT}",
+        "fps": FPS,
+        "voice_model": voice if isinstance(voice, str) else voice.name,
+        "hero_image": have_hero,
+        "broll_clip": broll_clip is not None,
+        "word_captions": len(captions),
+        "music_bed": music_idx is not None,
+    }
+
+
 def render_reel(
     script: dict,
     output: Path,
     tmp_dir: Path,
     music_path: Path | None = None,
+    engine: str = "auto",
 ) -> dict:
-    """Render a FISH reel_script to an MP4. Returns render report."""
+    """Render a FISH reel_script to an MP4. Returns render report.
+
+    engine: "remotion" (word-highlight captions + animated cards over the
+    footage), "ffmpeg" (static PNG overlays), or "auto" — remotion when the
+    composer is installed, else ffmpeg.
+    """
     if not USE_EDGE_TTS:
         _check_bin("piper")
         if not DEFAULT_PIPER_MODEL.exists():
             sys.exit(f"[reel_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
     _check_bin("ffmpeg")
     _check_bin("ffprobe")
+
+    if engine == "auto":
+        engine = "remotion" if _remotion_available() else "ffmpeg"
+    if engine == "remotion" and not _remotion_available():
+        print("[reel_render] remotion requested but unavailable; using ffmpeg",
+              file=sys.stderr)
+        engine = "ffmpeg"
+    print(f"[reel_render] engine: {engine}", file=sys.stderr)
 
     tmp_dir.mkdir(parents=True, exist_ok=True)
     lane = script.get("lane", "")
@@ -476,15 +679,17 @@ def render_reel(
     bg = LANE_BG.get(lane, DEFAULT_BG)
     voice = _voice_for_lane(lane)
 
-    # 1. TTS each section, measure actual duration
+    # 1. TTS each section, measure actual duration (+ word timings from Edge)
     seg_wavs: list[Path] = []
     seg_durations: list[float] = []
+    seg_words: list[list[dict] | None] = []
     for i, sec in enumerate(sections):
         wav = tmp_dir / f"seg_{i:02d}_{sec['id']}.wav"
-        _piper_tts(sec["narration"], wav, model=voice)
+        words = _piper_tts(sec["narration"], wav, model=voice)
         dur = _wav_duration(wav)
         seg_wavs.append(wav)
         seg_durations.append(dur)
+        seg_words.append(words)
         print(f"  [{sec['id']}] {dur:.1f}s → {wav.name}")
 
     total = sum(seg_durations)
@@ -684,6 +889,17 @@ def render_reel(
         bg_filter_prefix = ""
         bg_label = "0:v"
 
+    if engine == "remotion":
+        return _finish_reel_remotion(
+            script=script, output=output, tmp_dir=tmp_dir,
+            music_path=music_path, inputs=inputs,
+            bg_filter_prefix=bg_filter_prefix, bg_label=bg_label,
+            sections=sections, seg_durations=seg_durations,
+            seg_words=seg_words, total=total, total_padded=total_padded,
+            lane=lane, bg=bg, voice=voice, broll_clip=broll_clip,
+            have_hero=have_hero,
+        )
+
     # Add brand lead + outro cards + captions as extra inputs
     extra_pngs = [lead_card] + caption_pngs + [outro_card]
     for png in extra_pngs:
@@ -793,6 +1009,11 @@ def main() -> int:
         "--music", default="",
         help="Optional music bed .mp3/.wav (ducked -18dB under voice)",
     )
+    parser.add_argument(
+        "--engine", default="auto", choices=["auto", "remotion", "ffmpeg"],
+        help="Caption/card renderer: remotion (word-highlight captions), "
+             "ffmpeg (static PNGs), or auto (remotion when installed)",
+    )
     args = parser.parse_args()
 
     script = json.loads(Path(args.script).read_text())
@@ -800,7 +1021,7 @@ def main() -> int:
     tmp_dir = Path(args.tmp_dir) if args.tmp_dir else output.parent / f".{output.stem}_work"
     music = Path(args.music) if args.music else None
 
-    report = render_reel(script, output, tmp_dir, music_path=music)
+    report = render_reel(script, output, tmp_dir, music_path=music, engine=args.engine)
     print(f"\n[reel_render] wrote {report['output']} ({report['duration_seconds']}s)")
     print(json.dumps(report, indent=2))
     return 0

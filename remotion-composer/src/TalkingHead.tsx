@@ -3,6 +3,7 @@ import {
   OffthreadVideo,
   Sequence,
   interpolate,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
@@ -314,11 +315,18 @@ export const TalkingHead: React.FC<TalkingHeadProps> = ({
 }) => {
   const { fps } = useVideoConfig();
 
+  // The renderer can only stream http(s) or bundled public/ assets — bare
+  // names are resolved through staticFile so callers can stage a local file
+  // into public/ and pass just its filename.
+  const resolvedSrc = /^(https?|file):\/\//.test(videoSrc)
+    ? videoSrc
+    : staticFile(videoSrc);
+
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
       {/* Layer 1: Video background */}
       <OffthreadVideo
-        src={videoSrc}
+        src={resolvedSrc}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
 

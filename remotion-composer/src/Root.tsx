@@ -190,6 +190,26 @@ export const Root: React.FC = () => {
           fontSize: 52,
           highlightColor: "#22D3EE",
         }}
+        calculateMetadata={async ({ props }) => {
+          // Callers with a known runtime (e.g. the FISH reel renderer) pass
+          // durationSeconds; otherwise fall back to the last caption's end,
+          // then to the registered 300s ceiling.
+          const p = props as unknown as {
+            durationSeconds?: number;
+            captions?: { endMs: number }[];
+          };
+          if (p.durationSeconds && p.durationSeconds > 0) {
+            return { durationInFrames: Math.ceil(p.durationSeconds * 30) };
+          }
+          const lastEnd = Math.max(
+            0,
+            ...(p.captions ?? []).map((c) => c.endMs ?? 0)
+          );
+          if (lastEnd > 0) {
+            return { durationInFrames: Math.ceil(((lastEnd + 1500) / 1000) * 30) };
+          }
+          return { durationInFrames: 30 * 300 };
+        }}
       />
       <Composition
         id="TitledVideo"
