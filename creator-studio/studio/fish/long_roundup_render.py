@@ -45,6 +45,7 @@ from .reel_render import (
     _voice_for_lane,
     _wav_duration,
     _wrap_words,
+    luma_eq_filter,
     DEFAULT_PIPER_MODEL,
     LANE_BG,
     DEFAULT_BG,
@@ -65,6 +66,17 @@ CAPTION_Y_FRAC = 0.75      # Lower-third at 75%
 
 
 # ── caption/card overrides tuned for 16:9 ─────────────────────────────────────
+
+def _darken_eq(eq_filter: str, extra: float) -> str:
+    """Shift an `eq=brightness=...` filter by `extra` (clamped to -1..1)."""
+    import re as _re
+
+    m = _re.search(r"brightness=(-?[0-9.]+)", eq_filter)
+    if not m:
+        return eq_filter
+    value = max(-1.0, min(1.0, float(m.group(1)) + extra))
+    return eq_filter.replace(m.group(0), f"brightness={value:.3f}")
+
 
 def _render_transparent_overlay(out_png: Path) -> None:
     """Render a fully transparent 1920x1080 overlay for clean long-form body sections."""
@@ -531,6 +543,7 @@ def render_roundup(
     # Per-section b-roll input index: each section that uses a video clip
     # gets its own -stream_loop input so ffmpeg can trim independently.
     section_broll_idx: dict[int, int] = {}
+    section_broll_path: dict[int, Path] = {}
 
     for vis, dur in zip(section_visuals, seg_durations):
         ffmpeg_inputs += ["-loop", "1", "-t", f"{dur:.3f}", "-i", str(vis)]
@@ -561,6 +574,7 @@ def render_roundup(
                 "-stream_loop", "-1", "-t", f"{dur:.3f}", "-i", str(clip_path),
             ]
             section_broll_idx[i] = input_idx
+            section_broll_path[i] = clip_path
             input_idx += 1
 
     voice_input_idx = input_idx
@@ -588,13 +602,19 @@ def render_roundup(
 
         if i in section_broll_idx:
             clip_in = section_broll_idx[i]
-            # Darken more for title/transition/intro cards (text legibility)
-            bright = "-0.15" if sid.endswith("_body") else "-0.35"
+            # Normalize each clip toward a target luma instead of applying a
+            # fixed darkening constant, which crushed already-dim footage.
+            # Title/transition cards sit on top of the clip, so bias those a
+            # little darker for text legibility.
+            clip_path = section_broll_path.get(i)
+            eq = luma_eq_filter(clip_path)
+            if not sid.endswith("_body"):
+                eq = _darken_eq(eq, extra=-0.12)
             filter_parts.append(
                 f"[{clip_in}:v]scale={WIDTH}:{HEIGHT}:"
                 f"force_original_aspect_ratio=increase,"
                 f"crop={WIDTH}:{HEIGHT},fps={FPS},"
-                f"eq=brightness={bright}:saturation=0.9,"
+                f"{eq},"
                 f"trim=duration={dur:.3f},setpts=PTS-STARTPTS[clip{i}];"
                 f"[clip{i}][{vis_in}:v]overlay=0:0:format=auto[{seg_label}]"
             )

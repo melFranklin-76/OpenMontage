@@ -113,6 +113,7 @@ const POSITION_STYLES: Record<string, React.CSSProperties> = {
 const OverlayContent: React.FC<{ overlay: TalkingHeadOverlay }> = ({
   overlay,
 }) => {
+  const { fps } = useVideoConfig();
   const bgColor = overlay.backgroundColor || "#0F172A";
 
   if (overlay.type === "text_card" && overlay.text) {
@@ -219,7 +220,17 @@ const OverlayContent: React.FC<{ overlay: TalkingHeadOverlay }> = ({
     );
   }
   if (overlay.type === "hero_title" && overlay.text) {
-    return <HeroTitle title={overlay.text} subtitle={overlay.subtitle} />;
+    const windowFrames = Math.max(
+      1,
+      Math.round((overlay.out_seconds - overlay.in_seconds) * fps)
+    );
+    return (
+      <HeroTitle
+        title={overlay.text}
+        subtitle={overlay.subtitle}
+        windowFrames={windowFrames}
+      />
+    );
   }
   if (overlay.type === "section_title" && overlay.text) {
     return (
@@ -303,6 +314,8 @@ export interface TalkingHeadProps {
   wordsPerPage?: number;
   fontSize?: number;
   highlightColor?: string;
+  /** Caption clearance from the bottom edge (platform UI safe area). */
+  captionPaddingBottom?: number;
 }
 
 export const TalkingHead: React.FC<TalkingHeadProps> = ({
@@ -312,6 +325,7 @@ export const TalkingHead: React.FC<TalkingHeadProps> = ({
   wordsPerPage = 4,
   fontSize = 52,
   highlightColor = "#22D3EE",
+  captionPaddingBottom = 80,
 }) => {
   const { fps } = useVideoConfig();
 
@@ -353,8 +367,9 @@ export const TalkingHead: React.FC<TalkingHeadProps> = ({
         wordsPerPage={wordsPerPage}
         fontSize={fontSize}
         highlightColor={highlightColor}
-        backgroundColor="rgba(0, 0, 0, 0.65)"
+        backgroundColor="rgba(0, 0, 0, 0.72)"
         color="#FFFFFF"
+        paddingBottom={captionPaddingBottom}
       />
     </AbsoluteFill>
   );

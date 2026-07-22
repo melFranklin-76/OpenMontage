@@ -383,6 +383,54 @@ def _piper_tts(text: str, out_wav: Path, model: Path | str | None = None) -> lis
     return None
 
 
+def measure_luma(clip: Path, sample_seconds: float = 4.0) -> float | None:
+    """Average luma (0-255) of a clip's first seconds, or None if unmeasurable."""
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "info", "-t", f"{sample_seconds}", "-i", str(clip),
+         "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+         "-f", "null", "-"],
+        capture_output=True, text=True, timeout=120,
+    )
+    values = [
+        float(m) for m in
+        re.findall(r"lavfi\.signalstats\.YAVG=([0-9.]+)", proc.stderr)
+    ]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+# Target average luma for background footage. Bright enough that faces and
+# detail read, dark enough that white captions stay legible on top.
+TARGET_LUMA = 105.0
+MAX_LUMA_LIFT = 0.28
+MAX_LUMA_CUT = -0.22
+
+
+def luma_eq_filter(clip: Path | None, saturation: float = 0.95) -> str:
+    """Build an `eq=` filter that normalizes a clip toward TARGET_LUMA.
+
+    A fixed darkening constant was wrong in both directions: it crushed
+    already-dim footage into mud (the HIV story's doctor clip) while barely
+    touching blown-out clips. Measure each clip and correct toward a target
+    instead, clamped so we never posterize.
+    """
+    brightness = 0.0
+    if clip is not None:
+        try:
+            avg = measure_luma(clip)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[reel_render] luma probe failed: {exc}", file=sys.stderr)
+            avg = None
+        if avg is not None:
+            # eq=brightness is a -1..1 additive offset on normalized luma.
+            brightness = max(MAX_LUMA_CUT,
+                             min(MAX_LUMA_LIFT, (TARGET_LUMA - avg) / 255.0))
+            print(f"[reel_render] clip luma {avg:.0f} → brightness "
+                  f"{brightness:+.3f}", file=sys.stderr)
+    return f"eq=brightness={brightness:.3f}:saturation={saturation}"
+
+
 def _wav_duration(wav: Path) -> float:
     """Return audio duration in seconds via ffprobe."""
     proc = subprocess.run(
@@ -605,6 +653,9 @@ def _finish_reel_remotion(
         "fontSize": 58,
         "highlightColor": LANE_HIGHLIGHT.get(lane, DEFAULT_HIGHLIGHT),
         "durationSeconds": round(total_padded, 3),
+        # Shorts UI (progress bar, title, action rail) covers the bottom of
+        # the frame — keep captions clear of it.
+        "captionPaddingBottom": 320,
     }
     props_path = tmp_dir / "remotion_props.json"
     props_path.write_text(json.dumps(props))
@@ -863,7 +914,7 @@ def render_reel(
         bg_filter_prefix = (
             f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
             f"crop={WIDTH}:{HEIGHT},fps={FPS},"
-            f"eq=brightness=-0.15:saturation=0.9,"
+            f"{luma_eq_filter(broll_clip)},"
             f"trim=duration={total_padded:.3f},setpts=PTS-STARTPTS[bg];"
         )
         bg_label = "bg"

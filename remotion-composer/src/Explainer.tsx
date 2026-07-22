@@ -529,6 +529,7 @@ const BackgroundVideoLayer: React.FC<{
 };
 
 const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig }> = ({ cut, theme }) => {
+  const { fps } = useVideoConfig();
   // Wrap component with background video or image if specified
   const maybeWrapWithBg = (element: React.ReactElement) => {
     if (cut.backgroundVideo) {
@@ -593,8 +594,16 @@ const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig }> = ({ cut, theme 
     );
   }
   if (cut.type === "hero_title" && cut.text) {
+    const windowFrames = Math.max(
+      1,
+      Math.round((cut.out_seconds - cut.in_seconds) * fps)
+    );
     return maybeWrapWithBg(
-      <HeroTitle title={cut.text} subtitle={cut.heroSubtitle || cut.subtitle} />
+      <HeroTitle
+        title={cut.text}
+        subtitle={cut.heroSubtitle || cut.subtitle}
+        windowFrames={windowFrames}
+      />
     );
   }
   if (cut.type === "terminal_scene" && cut.steps) {
@@ -730,6 +739,7 @@ const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig }> = ({ cut, theme 
 // ---------------------------------------------------------------------------
 
 const OverlayRenderer: React.FC<{ overlay: Overlay }> = ({ overlay }) => {
+  const { fps } = useVideoConfig();
   if (overlay.type === "section_title") {
     return (
       <SectionTitle
@@ -751,7 +761,17 @@ const OverlayRenderer: React.FC<{ overlay: Overlay }> = ({ overlay }) => {
     );
   }
   if (overlay.type === "hero_title") {
-    return <HeroTitle title={overlay.text} subtitle={overlay.subtitle} />;
+    const windowFrames = Math.max(
+      1,
+      Math.round((overlay.out_seconds - overlay.in_seconds) * fps)
+    );
+    return (
+      <HeroTitle
+        title={overlay.text}
+        subtitle={overlay.subtitle}
+        windowFrames={windowFrames}
+      />
+    );
   }
   if (overlay.type === "provider_chip" && overlay.providers) {
     return (
