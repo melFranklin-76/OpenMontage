@@ -787,8 +787,8 @@ def render_reel(
         _render_caption_png(sec["narration"], png)
         caption_pngs.append(png)
 
-    # 3.5 Background ladder: licensed exact image → Pexels b-roll clip →
-    #     article hero image w/ Ken Burns → lane color card. Fetch this
+    # 3.5 Background ladder: licensed exact media → article hero image →
+    #     metadata-validated subject stock → lane color card. Fetch this
     #     first so the opening title beat can play over the motion instead of
     #     sitting on a static solid color card.
     from .broll import fetch_broll_for_story, mentions_public_person
@@ -843,20 +843,19 @@ def render_reel(
                     print(f"[reel_render] licensed image prep failed: {exc}",
                           file=sys.stderr)
 
-    # For a named person with no reusable match, the source article's hero is
-    # still more relevant than stock footage.
+    # The source article's hero is relevant by construction and therefore
+    # outranks stock for every story, not only stories about named people.
+    # A still of the right subject beats motion of an unrelated stand-in.
     if broll_clip is not None:
         pass    # licensed footage already carries the background
-    elif not have_hero and mentions_public_person(topic) and _try_hero():
+    elif not have_hero and _try_hero():
         have_hero = True
-        print("[reel_render] named person → hero image over stock b-roll",
+        reason = "named person" if mentions_public_person(topic) else "story source"
+        print(f"[reel_render] {reason} → article hero over stock b-roll",
               file=sys.stderr)
     elif not have_hero:
-        # Subject-mapped stock only — never literal headline words, which
-        # Pexels fuzzy-matches into unrelated footage (a "Mother Road"
-        # headline once produced a mom-with-kids clip). If the subject maps
-        # to no stock concept, the article's own image beats guessing, and
-        # generic lane footage is the true last resort.
+        # Subject-mapped stock only, with metadata validation in broll.py.
+        # Never use a generic lane clip merely to keep the screen moving.
         broll_clip = fetch_broll_for_story(
             title=topic,
             lane=lane,
@@ -864,16 +863,6 @@ def render_reel(
             orientation="portrait",
             mode="specific",
         )
-        if not broll_clip and _try_hero():
-            have_hero = True
-        if not broll_clip and not have_hero:
-            broll_clip = fetch_broll_for_story(
-                title=topic,
-                lane=lane,
-                out_path=tmp_dir / "broll_bg.mp4",
-                orientation="portrait",
-                mode="lane",
-            )
 
     # Brand lead card + hashtag outro card. Over motion (b-roll or hero) the
     # opening is a transparent overlay so footage shows through; on a solid
