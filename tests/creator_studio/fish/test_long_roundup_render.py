@@ -5,6 +5,7 @@ from studio.fish.long_roundup_render import (
     HEIGHT,
     WIDTH,
     _darken_eq,
+    _normalize_segment,
     _render_transparent_overlay,
 )
 
@@ -50,3 +51,9 @@ def test_darken_eq_clamps_to_ffmpeg_range():
 
 def test_darken_eq_leaves_unknown_filter_unchanged():
     assert _darken_eq("eq=saturation=0.95", -0.12) == "eq=saturation=0.95"
+
+
+def test_normalize_segment_forces_square_pixels_and_concat_pixel_format():
+    assert _normalize_segment("vraw7", "vseg7") == (
+        "[vraw7]setsar=1,format=yuv420p[vseg7]"
+    )
