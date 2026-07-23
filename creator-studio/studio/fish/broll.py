@@ -5,11 +5,12 @@ https://www.pexels.com/api/ and export PEXELS_API_KEY (locally) or add it
 as a GitHub Actions secret of the same name.
 
 Fallback ladder (renderers use this order, never fail on missing footage):
-    Pexels clip → story hero image w/ Ken Burns → lane color card
+    exact licensed media → story hero image w/ Ken Burns
+    → validated Pexels clip → lane color card
 
-Query strategy is deterministic: strip stopwords from the story title,
-keep the first few content words, and append a lane-flavored search term
-so even a vague title lands on something visually relevant.
+Query strategy is deterministic: map the story subject to a curated stock
+concept, then require descriptive result metadata to support that concept.
+Opaque or contradictory results are rejected before download.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 PEXELS_SEARCH_URL = "https://api.pexels.com/videos/search"
@@ -47,6 +49,31 @@ LANE_SEARCH_TERMS = {
     "trans": "trans rights rally support",
 }
 DEFAULT_SEARCH_TERM = "pride rainbow flag community"
+
+# These subjects are especially damaging when they appear under unrelated
+# adult news. They remain available when the headline is actually about them.
+_SENSITIVE_VISUAL_TERMS = {
+    "baby", "babies", "child", "children", "daughter", "family", "father",
+    "girl", "infant", "kid", "kids", "mother", "parent", "parents", "son",
+}
+
+
+@dataclass(frozen=True)
+class VisualBrief:
+    """Deterministic acceptance criteria for one stock-footage request."""
+
+    query: str
+    required_terms: frozenset[str]
+    forbidden_terms: frozenset[str]
+
+
+@dataclass(frozen=True)
+class BrollCandidate:
+    """A Pexels result with enough context to validate before download."""
+
+    download_url: str
+    source_url: str
+    descriptor: str
 
 
 # Story subject → stock-footage concept.
@@ -117,6 +144,48 @@ def topic_query(title: str) -> str:
         if any(_keyword_hit(kw, low) for kw in keywords):
             return visual
     return ""
+
+
+def build_visual_brief(title: str, query: str) -> VisualBrief:
+    """Build strict stock-footage acceptance criteria for a story.
+
+    Pexels result-page URLs usually include a descriptive slug. We require
+    that slug to overlap the curated visual concept and reject sensitive
+    subjects unless the headline itself calls for them. A numeric/opaque
+    result cannot be checked and is therefore not safe to use.
+    """
+    title_words = set(re.findall(r"[a-z]+", title.lower()))
+    required = {
+        word for word in re.findall(r"[a-z]+", query.lower())
+        if len(word) > 3 and word not in _STOPWORDS
+    }
+    forbidden = {
+        word for word in _SENSITIVE_VISUAL_TERMS
+        if word not in title_words
+    }
+    return VisualBrief(
+        query=query,
+        required_terms=frozenset(required),
+        forbidden_terms=frozenset(forbidden),
+    )
+
+
+def candidate_matches_brief(candidate: BrollCandidate, brief: VisualBrief) -> bool:
+    """Return True only when Pexels metadata supports the requested visual."""
+    words = set(re.findall(r"[a-z]+", candidate.descriptor.lower()))
+    if not words or words & brief.forbidden_terms:
+        return False
+    return bool(words & brief.required_terms)
+
+
+def _candidate_descriptor(source_url: str) -> str:
+    """Turn a descriptive Pexels result URL into searchable text."""
+    path = urllib.parse.urlparse(source_url).path.strip("/")
+    if not path:
+        return ""
+    slug = path.rsplit("/", 1)[-1]
+    slug = re.sub(r"-?\d+$", "", slug)
+    return " ".join(re.findall(r"[A-Za-z]+", slug))
 
 
 # Capitalized words that make a Capitalized-Bigram an institution, place, or
@@ -197,12 +266,14 @@ def search_broll(
     orientation: str = "landscape",
     min_width: int = 1280,
     timeout: int = 15,
+    brief: VisualBrief | None = None,
 ) -> str | None:
-    """Return the best matching Pexels video file URL, or None.
+    """Return the first validated Pexels video file URL, or None.
 
     orientation: "landscape" (roundup) or "portrait" (shorts).
     Picks the smallest video file that still meets min_width — full 4K
-    downloads are a waste of CI bandwidth.
+    downloads are a waste of CI bandwidth. When a visual brief is supplied,
+    descriptive result metadata must pass it before the clip is returned.
     """
     key = _api_key()
     if not key:
@@ -226,6 +297,12 @@ def search_broll(
         return None
 
     for video in data.get("videos", []):
+        source_url = str(video.get("url") or "")
+        candidate_context = " ".join((
+            _candidate_descriptor(source_url),
+            str(video.get("alt") or ""),
+            str(video.get("description") or ""),
+        )).strip()
         files = video.get("video_files", [])
         candidates = [
             f for f in files
@@ -235,7 +312,19 @@ def search_broll(
         if not candidates:
             continue
         best = min(candidates, key=lambda f: f.get("width", 10**9))
-        return best["link"]
+        candidate = BrollCandidate(
+            download_url=best["link"],
+            source_url=source_url,
+            descriptor=candidate_context,
+        )
+        if brief is not None and not candidate_matches_brief(candidate, brief):
+            print(
+                f"[broll] rejected metadata mismatch for {query!r}: "
+                f"{candidate_context or 'opaque result'}",
+                file=sys.stderr,
+            )
+            continue
+        return candidate.download_url
     return None
 
 
@@ -288,7 +377,8 @@ def fetch_broll_for_story(
     queries = [q for q in queries if q]
 
     for query in queries:
-        url = search_broll(query, orientation=orientation)
+        brief = build_visual_brief(title, query)
+        url = search_broll(query, orientation=orientation, brief=brief)
         if url:
             got = download_broll(url, out_path)
             if got:

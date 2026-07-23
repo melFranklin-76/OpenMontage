@@ -90,6 +90,68 @@ def test_topic_query_uses_word_boundaries_not_substrings():
     assert broll.topic_query("Gay bars see a revival") == "nightclub stage lights"
 
 
+def test_visual_brief_rejects_unrelated_family_footage():
+    brief = broll.build_visual_brief(
+        "Historic gay bar closes after 40 years",
+        "nightclub stage lights",
+    )
+    candidate = broll.BrollCandidate(
+        download_url="https://video.example/family.mp4",
+        source_url="https://pexels.com/video/mother-swinging-children-in-her-arms-123/",
+        descriptor="mother swinging children in her arms",
+    )
+
+    assert not broll.candidate_matches_brief(candidate, brief)
+
+
+def test_visual_brief_accepts_matching_adult_nightlife_footage():
+    brief = broll.build_visual_brief(
+        "Historic gay bar closes after 40 years",
+        "nightclub stage lights",
+    )
+    candidate = broll.BrollCandidate(
+        download_url="https://video.example/nightclub.mp4",
+        source_url="https://pexels.com/video/nightclub-stage-with-colorful-lights-456/",
+        descriptor="nightclub stage with colorful lights",
+    )
+
+    assert broll.candidate_matches_brief(candidate, brief)
+
+
+def test_visual_brief_allows_family_when_family_is_the_story():
+    brief = broll.build_visual_brief(
+        "Gay parents celebrate adoption with their children",
+        "family parents children",
+    )
+    candidate = broll.BrollCandidate(
+        download_url="https://video.example/family.mp4",
+        source_url="https://pexels.com/video/parents-playing-with-children-789/",
+        descriptor="parents playing with children",
+    )
+
+    assert broll.candidate_matches_brief(candidate, brief)
+
+
+def test_opaque_stock_result_is_not_safe_enough_to_use():
+    brief = broll.build_visual_brief(
+        "Supreme Court hears marriage case",
+        "courthouse justice gavel",
+    )
+    candidate = broll.BrollCandidate(
+        download_url="https://video.example/opaque.mp4",
+        source_url="https://pexels.com/video/123456/",
+        descriptor="",
+    )
+
+    assert not broll.candidate_matches_brief(candidate, brief)
+
+
+def test_candidate_descriptor_removes_pexels_numeric_id():
+    assert broll._candidate_descriptor(
+        "https://www.pexels.com/video/nightclub-stage-with-colorful-lights-456789/"
+    ) == "nightclub stage with colorful lights"
+
+
 def test_mentions_public_person_ignores_venues_and_title_case():
     # A named venue is a place, not a person.
     assert not broll.mentions_public_person("The Stonewall Inn reopens as a museum")

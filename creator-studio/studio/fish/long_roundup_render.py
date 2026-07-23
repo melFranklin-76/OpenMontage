@@ -337,13 +337,10 @@ def render_roundup(
 
     # 3. Pre-fetch per-story visuals.
     #
-    #    Ladder: licensed exact image → stock b-roll clip → article hero image
-    #    → lane color card.
-    #    BUT when the story is about a named public person, that order flips.
-    #    Stock libraries carry no footage of specific people, so a clip would
-    #    show some anonymous stand-in while the host names a real person. The
-    #    article's own hero image is nearly always a photo of that very person,
-    #    so it wins — Ken Burns on the right face beats motion on the wrong one.
+    #    Ladder: licensed exact media → article hero image →
+    #    metadata-validated subject stock → lane color card.
+    #    The source image wins for every story, not only named people: a still
+    #    of the right subject beats motion of an unrelated stand-in.
     broll_mp4s: dict[int, Path] = {}
     hero_pngs: dict[int, Path] = {}
     licensed_assets = []
@@ -402,17 +399,16 @@ def render_roundup(
                         f"{rank}: {exc}", file=sys.stderr,
                     )
 
-        about_a_person = mentions_public_person(title)
-        if about_a_person and _try_hero():
-            print(f"[long_roundup_render] rank {rank}: named person → hero image",
-                  file=sys.stderr)
+        if _try_hero():
+            reason = "named person" if mentions_public_person(title) else "story source"
+            print(
+                f"[long_roundup_render] rank {rank}: {reason} → hero image",
+                file=sys.stderr,
+            )
             continue
 
-        # Subject-mapped stock ONLY — a clip that matches the story's topic
-        # (library → bookshelves, court → courthouse). No literal-headline
-        # searching: Pexels fuzzy-matches single words, which is how a
-        # "Mother Road" headline once put a mom-with-kids clip under a story
-        # about gay bars.
+        # Subject-mapped stock only, with metadata validation in broll.py.
+        # No literal-headline or generic lane searching.
         clip = fetch_broll_for_story(
             title=title,
             lane=lane,
@@ -422,38 +418,14 @@ def render_roundup(
         )
         if clip:
             broll_mp4s[rank] = clip
-            continue
 
-        # No topic match → the article's own image is the most relevant
-        # visual we can get; generic lane footage is the true last resort.
-        if _try_hero():
-            continue
-
-        clip = fetch_broll_for_story(
-            title=title,
-            lane=lane,
-            out_path=tmp_dir / f"broll_{rank:02d}.mp4",
-            orientation="landscape",
-            mode="lane",
-        )
-        if clip:
-            broll_mp4s[rank] = clip
-
-    # Fetch a b-roll clip for the intro/outro/cold_open so they aren't flat
-    # color screens. Seeded from the lead story's subject when it maps to a
-    # stock concept; otherwise the show-default pride/community footage.
+    # Reuse the lead story's already-vetted motion for intro/outro/cold_open.
+    # Never fetch unrelated generic pride footage for these sections.
     generic_broll: Path | None = None
-    top_story_title = ""
     if script.get("stories"):
-        top_story_title = script["stories"][0].get("title", "")
-    _generic = fetch_broll_for_story(
-        title=top_story_title, lane="",
-        out_path=tmp_dir / "broll_generic.mp4",
-        orientation="landscape",
-        mode="any",
-    )
-    if _generic:
-        generic_broll = _generic
+        lead_rank = script["stories"][0].get("rank")
+        if isinstance(lead_rank, int):
+            generic_broll = broll_mp4s.get(lead_rank)
 
     # 4. Pre-render every section's visual layer:
     #    - Chapter titles + intro/outro: title text. Over b-roll it's a
