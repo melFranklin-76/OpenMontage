@@ -93,3 +93,35 @@ def test_brand_and_music_constants():
     assert reel_render.BRAND_LEAD_SECONDS > 0
     assert reel_render.BRAND_OUTRO_SECONDS > 0
     assert reel_render.MUSIC_DUCK_DB < 0
+
+
+def test_luma_eq_filter_lifts_dark_clip(monkeypatch, tmp_path):
+    clip = tmp_path / "dark.mp4"
+    clip.touch()
+    monkeypatch.setattr(reel_render, "measure_luma", lambda _: 40.0)
+
+    result = reel_render.luma_eq_filter(clip)
+
+    assert result == "eq=brightness=0.255:saturation=0.95"
+
+
+def test_luma_eq_filter_cuts_bright_clip_and_clamps(monkeypatch, tmp_path):
+    clip = tmp_path / "bright.mp4"
+    clip.touch()
+    monkeypatch.setattr(reel_render, "measure_luma", lambda _: 255.0)
+
+    result = reel_render.luma_eq_filter(clip)
+
+    assert result == "eq=brightness=-0.220:saturation=0.95"
+
+
+def test_luma_eq_filter_falls_back_when_probe_fails(monkeypatch, tmp_path):
+    clip = tmp_path / "broken.mp4"
+    clip.touch()
+
+    def fail(_):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(reel_render, "measure_luma", fail)
+
+    assert reel_render.luma_eq_filter(clip) == "eq=brightness=0.000:saturation=0.95"

@@ -23,6 +23,8 @@ interface CaptionOverlayProps {
   highlightColor?: string;
   backgroundColor?: string;
   fontFamily?: string;
+  /** Distance from the frame bottom. Shorts need clearance for platform UI. */
+  paddingBottom?: number;
 }
 
 interface CaptionPage {
@@ -52,7 +54,8 @@ const PageRenderer: React.FC<{
   highlightColor: string;
   backgroundColor: string;
   fontFamily: string;
-}> = ({ page, fontSize, color, highlightColor, backgroundColor, fontFamily }) => {
+  paddingBottom: number;
+}> = ({ page, fontSize, color, highlightColor, backgroundColor, fontFamily, paddingBottom }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
@@ -70,7 +73,7 @@ const PageRenderer: React.FC<{
       style={{
         justifyContent: "flex-end",
         alignItems: "center",
-        paddingBottom: 80,
+        paddingBottom,
       }}
     >
       <div
@@ -100,11 +103,18 @@ const PageRenderer: React.FC<{
               <span
                 key={`${w.startMs}-${i}`}
                 style={{
-                  color: isActive ? highlightColor : isPast ? color : `${color}99`,
+                  // Upcoming words were drawn at 60% opacity, which washed
+                  // out over light footage (pale scrubs, sky, flags). Keep
+                  // them dimmer than spoken words, but still readable.
+                  color: isActive ? highlightColor : isPast ? color : `${color}D9`,
                   transition: "none", // CSS transitions forbidden in Remotion
+                  // Dark outline so words hold up over ANY background, not
+                  // just where the scrim happens to be dark enough.
+                  WebkitTextStroke: "1px rgba(0,0,0,0.55)",
+                  paintOrder: "stroke fill",
                   textShadow: isActive
-                    ? `0 0 20px ${highlightColor}66, 0 2px 4px rgba(0,0,0,0.5)`
-                    : "0 2px 4px rgba(0,0,0,0.5)",
+                    ? `0 0 20px ${highlightColor}66, 0 2px 6px rgba(0,0,0,0.85)`
+                    : "0 2px 6px rgba(0,0,0,0.85)",
                 }}
               >
                 {w.word}{i < page.words.length - 1 ? " " : ""}
@@ -125,6 +135,7 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   highlightColor = "#22D3EE",
   backgroundColor = "rgba(15, 23, 42, 0.75)",
   fontFamily = "Space Grotesk, Inter, system-ui, sans-serif",
+  paddingBottom = 80,
 }) => {
   const { fps } = useVideoConfig();
   const pages = buildPages(words, wordsPerPage);
@@ -148,6 +159,7 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
               highlightColor={highlightColor}
               backgroundColor={backgroundColor}
               fontFamily={fontFamily}
+              paddingBottom={paddingBottom}
             />
           </Sequence>
         );

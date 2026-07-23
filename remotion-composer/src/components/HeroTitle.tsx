@@ -9,14 +9,42 @@ import {
 interface HeroTitleProps {
   title: string;
   subtitle?: string;
+  /** Frames the title is on screen; the stagger is fit inside it. */
+  windowFrames?: number;
 }
 
-export const HeroTitle: React.FC<HeroTitleProps> = ({ title, subtitle }) => {
+export const HeroTitle: React.FC<HeroTitleProps> = ({
+  title,
+  subtitle,
+  windowFrames,
+}) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, durationInFrames } = useVideoConfig();
 
-  // Staggered letter-by-letter spring
+  const words = title.split(/\s+/).filter(Boolean);
   const titleChars = title.split("");
+
+  // Character index of the first letter of word `wi` (spaces excluded).
+  const charIndexAt = (wi: number) =>
+    words.slice(0, wi).reduce((n, w) => n + w.length, 0);
+
+  // Long headlines used to overflow at a fixed 72px. Step the size down so
+  // the whole title fits the frame instead of spilling out of it.
+  const fontSize =
+    titleChars.length > 70 ? 44
+    : titleChars.length > 50 ? 52
+    : titleChars.length > 34 ? 62
+    : 72;
+
+  // The stagger must FINISH while the card is still on screen. At a fixed
+  // 1.2 frames/char a 60-character headline took 2.4s — longer than the 2s
+  // the card exists — so it was cut off mid-animation. Fit the whole
+  // stagger into the first ~55% of the window instead.
+  const availableFrames = windowFrames ?? durationInFrames;
+  const charDelay = Math.min(
+    1.2,
+    Math.max(0.15, (availableFrames * 0.55) / Math.max(1, titleChars.length))
+  );
 
   return (
     <AbsoluteFill
@@ -28,43 +56,54 @@ export const HeroTitle: React.FC<HeroTitleProps> = ({ title, subtitle }) => {
       }}
     >
       <div style={{ textAlign: "center", maxWidth: "85%" }}>
-        {/* Main title with per-character spring */}
+        {/* Main title: characters animate individually but WRAP BY WORD.
+            Flex-wrapping bare characters split words mid-word ("Day" →
+            "D" + "ay" on the next line), so each word is its own nowrap
+            flex item and the characters live inside it. */}
         <div
           style={{
-            fontSize: 72,
+            fontSize,
             fontWeight: 800,
             fontFamily: "Space Grotesk, Inter, system-ui, sans-serif",
             lineHeight: 1.2,
             display: "flex",
             justifyContent: "center",
             flexWrap: "wrap",
-            gap: 0,
+            columnGap: "0.28em",
+            rowGap: 0,
           }}
         >
-          {titleChars.map((char, i) => {
-            const delay = i * 1.2;
-            const charSpring = spring({
-              frame: frame - delay,
-              fps,
-              config: { damping: 12, stiffness: 150 },
-            });
-
-            return (
-              <span
-                key={i}
-                style={{
-                  display: "inline-block",
-                  opacity: charSpring,
-                  transform: `translateY(${interpolate(charSpring, [0, 1], [30, 0])}px)`,
-                  color: i < 8 ? "#22D3EE" : "#F8FAFC", // Accent first word
-                  whiteSpace: char === " " ? "pre" : undefined,
-                  minWidth: char === " " ? "0.3em" : undefined,
-                }}
-              >
-                {char}
-              </span>
-            );
-          })}
+          {words.map((word, wi) => (
+            <span
+              key={wi}
+              style={{ display: "inline-block", whiteSpace: "nowrap" }}
+            >
+              {word.split("").map((char, ci) => {
+                const charSpring = spring({
+                  frame: frame - (charIndexAt(wi) + ci) * charDelay,
+                  fps,
+                  config: { damping: 12, stiffness: 150 },
+                });
+                return (
+                  <span
+                    key={ci}
+                    style={{
+                      display: "inline-block",
+                      opacity: charSpring,
+                      transform: `translateY(${interpolate(
+                        charSpring,
+                        [0, 1],
+                        [30, 0]
+                      )}px)`,
+                      color: wi === 0 ? "#22D3EE" : "#F8FAFC",
+                    }}
+                  >
+                    {char}
+                  </span>
+                );
+              })}
+            </span>
+          ))}
         </div>
 
         {/* Subtitle */}
@@ -73,7 +112,7 @@ export const HeroTitle: React.FC<HeroTitleProps> = ({ title, subtitle }) => {
             style={{
               marginTop: 20,
               opacity: spring({
-                frame: frame - titleChars.length * 1.2 - 5,
+                frame: frame - titleChars.length * charDelay - 3,
                 fps,
                 config: { damping: 20 },
               }),
