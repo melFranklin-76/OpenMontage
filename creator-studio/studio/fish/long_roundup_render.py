@@ -30,6 +30,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from . import voice_intake
 from .broll import fetch_broll_for_story, mentions_public_person
 from .media_resolver import (
     download_media,
@@ -275,17 +276,38 @@ def _check_bin(name: str) -> None:
         sys.exit(f"[long_roundup_render] required binary not on PATH: {name}")
 
 
-def _voice_wav_for_section(section: dict, tmp_dir: Path, idx: int, voice: Path) -> Path:
+def _voice_wav_for_section(
+    section: dict, tmp_dir: Path, idx: int, voice: Path,
+    take: Path | None = None,
+) -> Path:
+    """Narration for one section — the host's own take when there is one."""
     wav = tmp_dir / f"seg_{idx:03d}_{section['id']}.wav"
-    _piper_tts(section["narration"], wav, model=voice)
+    if take is not None:
+        voice_intake.normalize_take(take, wav)
+    else:
+        _piper_tts(section["narration"], wav, model=voice)
     return wav
+
+
+def _fully_recorded(script: dict, voice_takes: dict[int, Path] | None) -> bool:
+    """True when every section has a host take, so no TTS engine is needed."""
+    sections = script.get("sections", [])
+    if not sections or not voice_takes:
+        return False
+    return all(i in voice_takes for i in range(1, len(sections) + 1))
 
 
 def render_roundup(
     script: dict, output: Path, tmp_dir: Path, music_path: Path | None = None,
+    voice_takes: dict[int, Path] | None = None,
 ) -> dict:
-    """Render a long-form roundup script to a horizontal MP4."""
-    if not USE_EDGE_TTS:
+    """Render a long-form roundup script to a horizontal MP4.
+
+    voice_takes: 1-based section index → host recording, from
+    voice_intake.match_takes. Sections without a take fall back to TTS.
+    """
+    # Only the TTS path needs a speech engine; a fully recorded episode does not.
+    if not USE_EDGE_TTS and not _fully_recorded(script, voice_takes):
         _check_bin("piper")
         if not DEFAULT_PIPER_MODEL.exists():
             sys.exit(f"[long_roundup_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
@@ -307,12 +329,14 @@ def render_roundup(
     for i, sec in enumerate(sections):
         lane = sec.get("lane", "")
         voice = _voice_for_lane(lane) if lane else host_voice
-        wav = _voice_wav_for_section(sec, tmp_dir, i, voice)
+        take = (voice_takes or {}).get(i + 1)
+        wav = _voice_wav_for_section(sec, tmp_dir, i, voice, take=take)
         dur = _wav_duration(wav)
         seg_wavs.append(wav)
         seg_durations.append(dur)
         seg_lanes.append(lane)
-        print(f"  [{i:02d} {sec['id']:20s}] {dur:6.1f}s ({lane or 'host'})", file=sys.stderr)
+        source = f"host:{take.name}" if take is not None else (lane or "host")
+        print(f"  [{i:02d} {sec['id']:20s}] {dur:6.1f}s ({source})", file=sys.stderr)
 
     total = sum(seg_durations)
     print(f"  total voice: {total:.1f}s ({total/60:.1f} min)", file=sys.stderr)
@@ -697,6 +721,17 @@ def main() -> int:
     parser.add_argument("--tmp-dir", default="", help="Working directory")
     parser.add_argument("--music", default="",
                         help="Optional music bed (looped and ducked)")
+    parser.add_argument(
+        "--voice-takes", default="",
+        help="Folder of host recordings named 001-*.wav, 002-*.wav … "
+             "Sections without a take fall back to TTS",
+    )
+    parser.add_argument(
+        "--require-voice-takes", action="store_true",
+        help="Fail rather than fall back to TTS when a take is missing. Mixing "
+             "a host voice with synthetic narration in one video sounds worse "
+             "than either alone",
+    )
     args = parser.parse_args()
 
     script = json.loads(Path(args.script).read_text())
@@ -704,7 +739,19 @@ def main() -> int:
     tmp_dir = Path(args.tmp_dir) if args.tmp_dir else output.parent / f".{output.stem}_work"
     music = Path(args.music) if args.music else None
 
-    report = render_roundup(script, output, tmp_dir, music_path=music)
+    takes = None
+    if args.voice_takes:
+        take_set = voice_intake.match_takes(
+            len(script.get("sections", [])), Path(args.voice_takes))
+        print(f"[long_roundup_render] voice takes: {take_set.describe()}",
+              file=sys.stderr)
+        if args.require_voice_takes and not take_set.complete:
+            sys.exit("[long_roundup_render] incomplete host narration: "
+                     f"{take_set.describe()}")
+        takes = take_set.takes
+
+    report = render_roundup(script, output, tmp_dir, music_path=music,
+                            voice_takes=takes)
     print(f"\n[long_roundup_render] wrote {report['output']} "
           f"({report['duration_min']} min)")
     print(json.dumps(report, indent=2))
