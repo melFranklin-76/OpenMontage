@@ -60,6 +60,13 @@ jobs:
     env:
       PYTHONPATH: creator-studio
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      # How many vertical Shorts to cut per night. Deliberately small:
+      # YouTube's inauthentic-content policy treats high-volume,
+      # template-identical uploads as mass production, and that judgement is
+      # applied to the channel as a whole rather than per video. The long
+      # roundup still covers ten stories — it is one considered piece, not
+      # ten near-identical ones, and it is the asset that accrues watch time.
+      SHORTS_COUNT: "3"
 
     steps:
       - name: Check out repo
@@ -106,10 +113,10 @@ jobs:
               print()
           " fish-digest-*.json
 
-      - name: Generate reel scripts for top 10 stories
+      - name: Generate reel scripts for the top stories
         run: |
           DIGEST=$(ls fish-digest-*.json | head -1)
-          for RANK in 1 2 3 4 5 6 7 8 9 10; do
+          for RANK in $(seq 1 "$SHORTS_COUNT"); do
             python -m studio.fish.research_handoff \
               --digest "$DIGEST" --rank "$RANK" \
               --output "fish-handoff-rank${RANK}.json" 2>/dev/null || continue
@@ -146,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           FAILED=0
-          for RANK in 1 2 3 4 5 6 7 8 9 10; do
+          for RANK in $(seq 1 "$SHORTS_COUNT"); do
             SCRIPT="fish-script-rank${RANK}.json"
             [ -f "$SCRIPT" ] || continue
             echo "::group::Render rank ${RANK}"
