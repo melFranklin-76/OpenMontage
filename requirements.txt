@@ -6,3 +6,4 @@ python-dotenv>=1.0
 Pillow>=10.0
 requests>=2.31
 google-auth>=2.0       # service-account auth for Google TTS + Imagen (Vertex AI)
+numpy>=1.24            # imported at module load by lib/corpus.py + lib/clip_embedder.py
