@@ -627,12 +627,21 @@ def render_roundup(
         elif sid.endswith("_body") and rank in hero_input_idx:
             hero_in = hero_input_idx[rank]
             frames = int(dur * FPS)
+            # zoompan's `d` is frames *per input frame*, not total output
+            # frames. A `-loop 1 -t {dur} -i hero.png` input still delivers
+            # dur * default_image2_fps (25) discrete frames, so without an
+            # explicit trim here zoompan multiplies d across ~25x too many
+            # input frames and this segment overruns its slot by 20-30x,
+            # swallowing every following segment's screen time in the concat
+            # (visually: this story's hero appears to "bleed" into later
+            # stories' slots). Cap it to `dur`, same as the clip branch above.
             filter_parts.append(
                 f"[{hero_in}:v]scale={WIDTH*2}x{HEIGHT*2},"
                 f"zoompan=z='min(zoom+0.0005,1.10)':d={frames}:"
                 f"x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':"
                 f"s={WIDTH}x{HEIGHT}:fps={FPS}[hero{i}];"
-                f"[hero{i}][{vis_in}:v]overlay=0:0:format=auto[{raw_label}]"
+                f"[hero{i}][{vis_in}:v]overlay=0:0:format=auto,"
+                f"trim=duration={dur:.3f},setpts=PTS-STARTPTS[{raw_label}]"
             )
         else:
             filter_parts.append(
