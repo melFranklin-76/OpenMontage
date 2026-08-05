@@ -123,12 +123,17 @@ def _resolve_latest_project() -> Path:
     return max(projects, key=lambda p: p.stat().st_mtime)
 
 
-def _prepare_inputs(name: str) -> None:
+def _prepare_inputs(name: str, *, force_clean: bool = True) -> None:
     """Auto-clean any prior same-named project and ensure an inbox placeholder."""
 
     slug = _slugify(name)
     stale = PROJECTS_DIR / slug
     if stale.exists():
+        if not force_clean:
+            raise SmokeError(
+                f"Smoke project already exists at {stale}. "
+                "Re-run with --force-clean or choose a different --name."
+            )
         print(f"Removing stale smoke project: {stale}")
         shutil.rmtree(stale)
     INBOX_DIR.mkdir(parents=True, exist_ok=True)
@@ -176,7 +181,7 @@ def _cleanup(project_dir: Path) -> None:
     print("Cleaned up smoke artifacts (project dir + inbox placeholder).")
 
 
-def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
+def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool, force_clean: bool = True) -> int:
     """Drive the full fixture-only pipeline and verify the terminal state."""
 
     print("=" * 38)
@@ -185,7 +190,7 @@ def run_smoke(*, pipeline: str, name: str, topic: str, keep: bool) -> int:
     print(f"Pipeline: {pipeline}")
     print(f"Name:     {name}")
 
-    _prepare_inputs(name)
+    _prepare_inputs(name, force_clean=force_clean)
 
     print("\n[approve] create project + research handoff")
     _run_cli("--approve", "--name", name, "--topic", topic, "--pipeline", pipeline)
@@ -254,8 +259,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--keep",
+        "--keep-project",
+        dest="keep",
         action="store_true",
         help="Leave the smoke project on disk instead of cleaning it up.",
+    )
+    parser.add_argument(
+        "--force-clean",
+        dest="force_clean",
+        action="store_true",
+        default=True,
+        help="Remove an existing same-named smoke project before running (default).",
+    )
+    parser.add_argument(
+        "--no-force-clean",
+        dest="force_clean",
+        action="store_false",
+        help="Fail instead of removing an existing same-named smoke project.",
     )
     return parser.parse_args()
 
@@ -268,6 +288,7 @@ def main() -> int:
             name=args.name,
             topic=args.topic,
             keep=args.keep,
+            force_clean=args.force_clean,
         )
     except SmokeError as exc:
         print(f"\nSMOKE FAILED\n{exc}", file=sys.stderr)
