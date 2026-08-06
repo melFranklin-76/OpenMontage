@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from unittest import mock
+
 from studio.fish import creator_watch as cw
 
 
@@ -90,5 +93,211 @@ def test_no_signals_is_a_noop():
 
 
 def test_watched_channels_configured():
-    assert "Funky Dineva" in cw.WATCHED_CHANNELS
-    assert "Outlaws with TS Madison" in cw.WATCHED_CHANNELS
+    # TS Madison runs two channels and they are easy to mix up: "Outlaws" is
+    # the sit-down commentary show, the other is her main channel. Pin both
+    # IDs so a rename can't silently repoint one at the wrong feed.
+    assert cw.WATCHED_CHANNELS["Outlaws with TS Madison"] == "UCsOACvK3jQaqeNsWfiW_kUg"
+    assert cw.WATCHED_CHANNELS["Ts Madison"] == "UCE81T3u_YFLIJM6xxp7YJvg"
+    assert cw.WATCHED_CHANNELS["Funky Dineva"] == "UChIkZ9tdYNG78qoFF6oWSvA"
+
+
+# ── feed scanning ────────────────────────────────────────────────────────────
+
+class _FakeResponse:
+    def __init__(self, text: str):
+        self._text = text
+
+    def read(self) -> bytes:
+        return self._text.encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _feed(*entries) -> str:
+    """Channel feed XML. Entries are (video_id, title, age_hours)."""
+    now = datetime.now(timezone.utc)
+    blocks = "".join(
+        f"<entry><yt:videoId>{vid}</yt:videoId><title>{title}</title>"
+        f"<published>{(now - timedelta(hours=age)).isoformat()}</published></entry>"
+        for vid, title, age in entries
+    )
+    return f"<feed>{blocks}</feed>"
+
+
+def test_recent_videos_collects_the_window_not_just_the_newest():
+    xml = _feed(("v1", "Short", 1), ("v2", "Live episode", 5))
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse(xml)):
+        videos = cw.recent_videos("CID")
+    assert [v["video_id"] for v in videos] == ["v1", "v2"]
+
+
+def test_recent_videos_stops_at_the_first_stale_entry():
+    # Feeds are ordered newest-first, so a stale entry means everything after
+    # it is older still — v4 is inside the window but unreachable.
+    xml = _feed(("v1", "Recent", 1), ("v3", "Stale", 500), ("v4", "Unreachable", 2))
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse(xml)):
+        videos = cw.recent_videos("CID")
+    assert [v["video_id"] for v in videos] == ["v1"]
+
+
+def test_recent_videos_unescapes_titles_for_topic_extraction():
+    xml = _feed(("v1", "Pastor &amp; church fallout", 1))
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse(xml)):
+        videos = cw.recent_videos("CID")
+    assert videos[0]["title"] == "Pastor & church fallout"
+
+
+def test_recent_videos_is_soft_on_unreachable_feeds():
+    with mock.patch("urllib.request.urlopen", side_effect=OSError("no network")):
+        assert cw.recent_videos("CID") == []
+
+
+# ── episode selection ────────────────────────────────────────────────────────
+
+def _videos(*pairs) -> list[dict]:
+    return [{"video_id": v, "title": t, "published": "2026-08-02T00:00:00+00:00"}
+            for v, t in pairs]
+
+
+def _on_beat(words: int) -> str:
+    """A transcript that is both long enough and about the show's beat."""
+    return ("gay lesbian black trans " * cw.MIN_EDITORIAL_MENTIONS) + ("word " * words)
+
+
+def test_pick_episode_walks_past_shorts_and_thin_uploads():
+    """The newest upload is usually a Short; the episode is further back.
+
+    Taking the newest slot blindly cost the channel its whole night of signal,
+    because a Short's handful of caption words never clears extract_topics'
+    recurrence threshold.
+    """
+    videos = _videos(
+        ("s1", "In Antigua #Shorts"),      # skipped on title — costs no fetch
+        ("c1", "Quick clip"),              # fetched, too thin
+        ("e1", "Live - Thursday night"),   # the episode
+    )
+    transcripts = {"c1": "word " * 50, "e1": _on_beat(cw.MIN_TRANSCRIPT_WORDS)}
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript",
+                           side_effect=lambda vid: transcripts.get(vid, "")) as fetch:
+        episode = cw.pick_episode("CID", label="Chan")
+
+    assert episode["video_id"] == "e1"
+    assert episode["transcript"]
+    assert [call.args[0] for call in fetch.call_args_list] == ["c1", "e1"]
+
+
+def test_pick_episode_rejects_long_but_off_beat_uploads():
+    """Length proves long-form, not commentary.
+
+    A live run accepted 2,388 words of holiday vlog from a watched channel;
+    its filler ("sandwich", "camera") then lifted 19% of the digest.
+    """
+    videos = _videos(("vlog", "In Antigua"), ("ep", "Pastor pushed out"))
+    transcripts = {
+        "vlog": "word " * (cw.MIN_TRANSCRIPT_WORDS + 500),   # long, zero beat
+        "ep": _on_beat(cw.MIN_TRANSCRIPT_WORDS),
+    }
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript",
+                           side_effect=lambda vid: transcripts.get(vid, "")):
+        episode = cw.pick_episode("CID", label="Chan")
+    assert episode["video_id"] == "ep"
+
+
+def test_off_beat_upload_does_not_count_as_a_yt_dlp_failure():
+    """Captions arrived — yt-dlp is healthy, the video was just off-beat."""
+    budget = cw._FetchBudget(max_consecutive_failures=2)
+    with mock.patch.object(cw, "recent_videos",
+                           return_value=_videos(("vlog", "In Antigua"))), \
+         mock.patch.object(cw, "fetch_transcript",
+                           return_value="word " * (cw.MIN_TRANSCRIPT_WORDS + 10)):
+        assert cw.pick_episode("CID", budget=budget) is None
+    assert budget.consecutive_failures == 0
+
+
+def test_editorial_mentions_counts_recurrence_not_presence():
+    assert cw.editorial_mentions("a holiday in antigua with the girls") == 0
+    # One passing mention across an episode is not coverage.
+    assert cw.editorial_mentions("we went to a gay bar once") < cw.MIN_EDITORIAL_MENTIONS
+    assert cw.editorial_mentions(
+        "the gay pastor story, gay clergy, gay congregations"
+    ) >= cw.MIN_EDITORIAL_MENTIONS
+    assert cw.editorial_mentions("", title="Gay gay gay pastor") >= cw.MIN_EDITORIAL_MENTIONS
+
+
+def test_pick_episode_caps_transcript_fetches_per_channel():
+    videos = _videos(*[(f"v{i}", f"Clip {i}") for i in range(6)])
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript", return_value="") as fetch:
+        assert cw.pick_episode("CID") is None
+    assert fetch.call_count == cw.MAX_TRANSCRIPT_ATTEMPTS
+
+
+def test_pick_episode_gives_up_once_yt_dlp_looks_blocked():
+    """A bot-walled yt-dlp looks identical to "no captions" — but retrying it
+    across every channel burns minutes of two-minute timeouts for nothing."""
+    budget = cw._FetchBudget(max_consecutive_failures=1)
+    budget.record(usable=False)
+    assert budget.exhausted
+
+    with mock.patch.object(cw, "recent_videos", return_value=_videos(("e1", "Live"))), \
+         mock.patch.object(cw, "fetch_transcript") as fetch:
+        assert cw.pick_episode("CID", budget=budget) is None
+    fetch.assert_not_called()
+
+
+def test_fetch_budget_resets_after_a_usable_transcript():
+    budget = cw._FetchBudget(max_consecutive_failures=2)
+    budget.record(usable=False)
+    budget.record(usable=True)
+    budget.record(usable=False)
+    assert not budget.exhausted
+
+
+def test_signals_never_persist_creator_transcripts():
+    """Signals land in the digest artifact. Their words must not."""
+    episode = {
+        "video_id": "e1", "title": "Pastor tithes backlash", "published": "p",
+        "transcript": "pastor pastor pastor tithes tithes tithes church church church",
+    }
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Chan": "CID"}), \
+         mock.patch.object(cw, "pick_episode", return_value=episode):
+        signals = cw.creator_topic_signals()
+
+    assert signals["Chan"]["topics"]
+    assert "transcript" not in signals["Chan"]
+
+
+def test_signals_skip_channels_with_no_usable_episode():
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Chan": "CID"}), \
+         mock.patch.object(cw, "pick_episode", return_value=None):
+        assert cw.creator_topic_signals() == {}
+
+
+def test_filler_topics_are_dropped_from_a_real_sized_digest():
+    """Regression: a watched channel on vacation lifted 19% of a live digest
+    on words like "only" and "used" before this filter existed."""
+    stories = [(f"Story {i} about only used things", "", 0.5) for i in range(30)]
+    digest = _digest(*stories)
+    signals = {"Chan": {"video_id": "v", "title": "t", "published": "p",
+                        "topics": ["only", "used"]}}
+    out = cw.boost_candidates(digest, signals)
+    assert not [i for i in out["items"] if "creator_signal" in i]
+    assert out["creator_watch"]["Chan"]["topics"] == []
+
+
+def test_rare_topics_survive_the_digest_share_filter():
+    stories = [(f"Story {i} about only used things", "", 0.5) for i in range(30)]
+    stories[0] = ("School board banned the books", "", 0.5)
+    digest = _digest(*stories)
+    signals = {"Chan": {"video_id": "v", "title": "t", "published": "p",
+                        "topics": ["school", "board", "only"]}}
+    out = cw.boost_candidates(digest, signals)
+    boosted = [i for i in out["items"] if "creator_signal" in i]
+    assert len(boosted) == 1
+    assert sorted(boosted[0]["creator_signal"]["matched_topics"]) == ["board", "school"]
