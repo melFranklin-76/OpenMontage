@@ -1,28 +1,24 @@
 name: FISH Shorts Stagger
 
-# Publishes one Short every 2 hours from the previous night's daily-digest
-# artifact. The 8 PM CT roundup renders 10 vertical shorts; this workflow
-# drips them out across the following day for better algorithm reach.
+# Publishes the previous night's Shorts from the daily-digest artifact, spread
+# across the following day for reach.
 #
-# Hour (UTC) → rank mapping. Starts 8 AM CT (13:00 UTC) the morning after
-# the roundup, ends 2 AM CT.
+# Three slots, not ten. Volume itself is a monetization signal: YouTube's
+# inauthentic-content policy reads high-volume, template-identical uploads as
+# mass production, and applies that judgement to the whole channel. Three
+# considered Shorts a day is a different channel from thirty a week.
+#
+# Hour (UTC) → rank mapping, morning/midday/evening in CT.
 
 on:
   schedule:
     - cron: "0 13 * * *"   # 8 AM CT  → rank 1
-    - cron: "0 15 * * *"   # 10 AM CT → rank 2
-    - cron: "0 17 * * *"   # 12 PM CT → rank 3
-    - cron: "0 19 * * *"   # 2 PM CT  → rank 4
-    - cron: "0 21 * * *"   # 4 PM CT  → rank 5
-    - cron: "0 23 * * *"   # 6 PM CT  → rank 6
-    - cron: "0 3 * * *"    # 10 PM CT → rank 7
-    - cron: "0 5 * * *"    # 12 AM CT → rank 8
-    - cron: "0 7 * * *"    # 2 AM CT  → rank 9
-    - cron: "0 9 * * *"    # 4 AM CT  → rank 10
+    - cron: "0 17 * * *"   # 12 PM CT → rank 2
+    - cron: "0 22 * * *"   # 5 PM CT  → rank 3
   workflow_dispatch:
     inputs:
       rank:
-        description: "Story rank to publish (1-10)"
+        description: "Story rank to publish"
         required: true
         default: "1"
 
@@ -52,15 +48,8 @@ jobs:
             HOUR=$(date -u +%H)
             case "$HOUR" in
               13) RANK=1 ;;
-              15) RANK=2 ;;
-              17) RANK=3 ;;
-              19) RANK=4 ;;
-              21) RANK=5 ;;
-              23) RANK=6 ;;
-              03) RANK=7 ;;
-              05) RANK=8 ;;
-              07) RANK=9 ;;
-              09) RANK=10 ;;
+              17) RANK=2 ;;
+              22) RANK=3 ;;
               *) echo "No rank mapped for hour $HOUR; exiting."; exit 0 ;;
             esac
           fi
@@ -172,8 +161,11 @@ jobs:
             --output "fish-ig-rank${RANK}.json"
           cat "fish-ig-rank${RANK}.json"
 
+      # Runs on the last slot of the day, so keep this in step with the rank
+      # mapping above — gated on a rank that no longer exists, prerelease
+      # assets would pile up forever.
       - name: Cleanup old FISH daily releases
-        if: always() && steps.rank.outputs.rank == '10'
+        if: always() && steps.rank.outputs.rank == '3'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
