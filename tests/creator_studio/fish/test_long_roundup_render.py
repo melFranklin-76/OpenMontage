@@ -2,9 +2,11 @@ import sys
 from types import ModuleType
 
 from studio.fish.long_roundup_render import (
+    FPS,
     HEIGHT,
     WIDTH,
     _darken_eq,
+    _hero_ken_burns_filter,
     _normalize_segment,
     _render_transparent_overlay,
 )
@@ -57,3 +59,29 @@ def test_normalize_segment_forces_square_pixels_and_concat_pixel_format():
     assert _normalize_segment("vraw7", "vseg7") == (
         "[vraw7]setsar=1,format=yuv420p[vseg7]"
     )
+
+
+def test_hero_ken_burns_filter_clamps_duration_to_prevent_zoompan_overrun():
+    # Regression guard for the hero-leak bug: zoompan emits `d` frames for every
+    # input frame, and the hero input is looped (`-loop 1 -t dur`). Without a
+    # `trim=duration`/`setpts` clamp the first body segment out-runs the whole
+    # `-t total` output, so concat never advances and every story shows story
+    # 1's hero. The Ken Burns chain MUST clamp each segment to its duration.
+    f = _hero_ken_burns_filter(hero_in=9, vis_in=3, dur=4.0, seg_index=3, raw_label="vraw3")
+    assert "zoompan=" in f
+    assert "trim=duration=4.000" in f
+    assert "setpts=PTS-STARTPTS[hero3]" in f
+    # The clamp must apply before the hero label is overlaid/consumed.
+    assert f.index("trim=duration") < f.index("[hero3][3:v]overlay")
+
+
+def test_hero_ken_burns_filter_uses_distinct_inputs_and_labels():
+    a = _hero_ken_burns_filter(9, 3, 4.0, 3, "vraw3")
+    b = _hero_ken_burns_filter(10, 5, 4.0, 5, "vraw5")
+    assert "[9:v]" in a and "[hero3]" in a and "[3:v]overlay" in a
+    assert "[10:v]" in b and "[hero5]" in b and "[5:v]overlay" in b
+    assert a != b
+
+
+def test_hero_ken_burns_frame_count_tracks_fps_and_duration():
+    assert f"d={int(2.0 * FPS)}" in _hero_ken_burns_filter(9, 3, 2.0, 3, "vraw3")

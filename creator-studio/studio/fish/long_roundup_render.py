@@ -83,6 +83,30 @@ def _normalize_segment(input_label: str, output_label: str) -> str:
     return f"[{input_label}]setsar=1,format=yuv420p[{output_label}]"
 
 
+def _hero_ken_burns_filter(
+    hero_in: int, vis_in: int, dur: float, seg_index: int, raw_label: str
+) -> str:
+    """Ken Burns a hero still, then overlay the section's caption layer.
+
+    ``zoompan`` emits ``d`` frames for EVERY input frame it receives. The hero
+    image input is looped (``-loop 1 -t dur``), so it delivers ``dur*fps``
+    frames and zoompan over-produces (~fps× the intended length). Left
+    unclamped, the first body segment alone runs longer than the whole
+    ``-t total`` output, so ``concat`` never advances and every story shows
+    story 1's hero. The ``trim=duration`` + ``setpts=PTS-STARTPTS`` clamp
+    (mirroring the b-roll branch) bounds each segment to its real duration.
+    """
+    frames = int(dur * FPS)
+    return (
+        f"[{hero_in}:v]scale={WIDTH*2}x{HEIGHT*2},"
+        f"zoompan=z='min(zoom+0.0005,1.10)':d={frames}:"
+        f"x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':"
+        f"s={WIDTH}x{HEIGHT}:fps={FPS},"
+        f"trim=duration={dur:.3f},setpts=PTS-STARTPTS[hero{seg_index}];"
+        f"[hero{seg_index}][{vis_in}:v]overlay=0:0:format=auto[{raw_label}]"
+    )
+
+
 def _render_transparent_overlay(out_png: Path) -> None:
     """Render a fully transparent 1920x1080 overlay for clean long-form body sections."""
     from PIL import Image
@@ -626,13 +650,8 @@ def render_roundup(
             )
         elif sid.endswith("_body") and rank in hero_input_idx:
             hero_in = hero_input_idx[rank]
-            frames = int(dur * FPS)
             filter_parts.append(
-                f"[{hero_in}:v]scale={WIDTH*2}x{HEIGHT*2},"
-                f"zoompan=z='min(zoom+0.0005,1.10)':d={frames}:"
-                f"x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':"
-                f"s={WIDTH}x{HEIGHT}:fps={FPS}[hero{i}];"
-                f"[hero{i}][{vis_in}:v]overlay=0:0:format=auto[{raw_label}]"
+                _hero_ken_burns_filter(hero_in, vis_in, dur, i, raw_label)
             )
         else:
             filter_parts.append(
