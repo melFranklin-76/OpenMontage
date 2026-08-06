@@ -28,6 +28,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from . import voice_intake
+
 # ── constants ────────────────────────────────────────────────────────────────
 
 PIPER_MODEL_DIR = Path.home() / ".piper" / "models"
@@ -368,6 +370,14 @@ def _piper_tts_raw(text: str, out_wav: Path, model: Path | None = None) -> None:
         raise RuntimeError(f"Piper failed: {proc.stderr}")
 
 
+def _fully_recorded(script: dict, voice_takes: dict[int, Path] | None) -> bool:
+    """True when every section has a host take, so no TTS engine is needed."""
+    sections = script.get("sections", [])
+    if not sections or not voice_takes:
+        return False
+    return all(i in voice_takes for i in range(1, len(sections) + 1))
+
+
 def _piper_tts(text: str, out_wav: Path, model: Path | str | None = None) -> list[dict] | None:
     """Generate speech — Edge TTS if available, Piper as fallback.
 
@@ -701,14 +711,19 @@ def render_reel(
     tmp_dir: Path,
     music_path: Path | None = None,
     engine: str = "auto",
+    voice_takes: dict[int, Path] | None = None,
 ) -> dict:
     """Render a FISH reel_script to an MP4. Returns render report.
 
     engine: "remotion" (word-highlight captions + animated cards over the
     footage), "ffmpeg" (static PNG overlays), or "auto" — remotion when the
     composer is installed, else ffmpeg.
+
+    voice_takes: 1-based section index → host recording, from
+    voice_intake.match_takes. Sections without a take fall back to TTS.
     """
-    if not USE_EDGE_TTS:
+    # Only the TTS path needs a speech engine; a fully recorded episode does not.
+    if not USE_EDGE_TTS and not _fully_recorded(script, voice_takes):
         _check_bin("piper")
         if not DEFAULT_PIPER_MODEL.exists():
             sys.exit(f"[reel_render] Piper voice not found: {DEFAULT_PIPER_MODEL}")
@@ -732,18 +747,27 @@ def render_reel(
     bg = LANE_BG.get(lane, DEFAULT_BG)
     voice = _voice_for_lane(lane)
 
-    # 1. TTS each section, measure actual duration (+ word timings from Edge)
+    # 1. Voice each section, measure actual duration (+ word timings).
+    #    Host recordings win over TTS wherever they exist — see voice_intake.
     seg_wavs: list[Path] = []
     seg_durations: list[float] = []
     seg_words: list[list[dict] | None] = []
     for i, sec in enumerate(sections):
         wav = tmp_dir / f"seg_{i:02d}_{sec['id']}.wav"
-        words = _piper_tts(sec["narration"], wav, model=voice)
-        dur = _wav_duration(wav)
+        take = (voice_takes or {}).get(i + 1)
+        if take is not None:
+            voice_intake.normalize_take(take, wav)
+            dur = _wav_duration(wav)
+            words = voice_intake.word_timings(sec["narration"], dur)
+            source = f"host:{take.name}"
+        else:
+            words = _piper_tts(sec["narration"], wav, model=voice)
+            dur = _wav_duration(wav)
+            source = "tts"
         seg_wavs.append(wav)
         seg_durations.append(dur)
         seg_words.append(words)
-        print(f"  [{sec['id']}] {dur:.1f}s → {wav.name}")
+        print(f"  [{sec['id']}] {dur:.1f}s → {wav.name} ({source})")
 
     total = sum(seg_durations)
 
@@ -1073,6 +1097,17 @@ def main() -> int:
         help="Caption/card renderer: remotion (word-highlight captions), "
              "ffmpeg (static PNGs), or auto (remotion when installed)",
     )
+    parser.add_argument(
+        "--voice-takes", default="",
+        help="Folder of host recordings named 001-*.wav, 002-*.wav … "
+             "Sections without a take fall back to TTS",
+    )
+    parser.add_argument(
+        "--require-voice-takes", action="store_true",
+        help="Fail rather than fall back to TTS when a take is missing. Mixing "
+             "a host voice with synthetic narration in one video sounds worse "
+             "than either alone",
+    )
     args = parser.parse_args()
 
     script = json.loads(Path(args.script).read_text())
@@ -1080,7 +1115,17 @@ def main() -> int:
     tmp_dir = Path(args.tmp_dir) if args.tmp_dir else output.parent / f".{output.stem}_work"
     music = Path(args.music) if args.music else None
 
-    report = render_reel(script, output, tmp_dir, music_path=music, engine=args.engine)
+    takes = None
+    if args.voice_takes:
+        take_set = voice_intake.match_takes(
+            len(script.get("sections", [])), Path(args.voice_takes))
+        print(f"[reel_render] voice takes: {take_set.describe()}", file=sys.stderr)
+        if args.require_voice_takes and not take_set.complete:
+            sys.exit(f"[reel_render] incomplete host narration: {take_set.describe()}")
+        takes = take_set.takes
+
+    report = render_reel(script, output, tmp_dir, music_path=music,
+                         engine=args.engine, voice_takes=takes)
     print(f"\n[reel_render] wrote {report['output']} ({report['duration_seconds']}s)")
     print(json.dumps(report, indent=2))
     return 0
