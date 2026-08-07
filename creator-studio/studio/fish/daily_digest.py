@@ -85,6 +85,13 @@ def main() -> int:
         action="store_true",
         help="Boost stories overlapping watched creators' latest episode topics",
     )
+    parser.add_argument(
+        "--creator-watch-state",
+        default=None,
+        help="Where creator-watch remembers mined topics between runs, so a "
+             "channel that posts ~5x/week still counts on the nights between "
+             "uploads",
+    )
     args = parser.parse_args()
 
     if args.social_only:
@@ -102,7 +109,9 @@ def main() -> int:
 
     if args.creator_watch:
         from .creator_watch import boost_candidates, creator_topic_signals
-        digest = boost_candidates(digest, creator_topic_signals())
+        state_path = (Path(args.creator_watch_state)
+                      if args.creator_watch_state else None)
+        digest = boost_candidates(digest, creator_topic_signals(state_path))
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)

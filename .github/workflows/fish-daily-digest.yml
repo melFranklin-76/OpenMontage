@@ -90,12 +90,24 @@ jobs:
       - name: Install Remotion composer (word-highlight captions for Shorts)
         run: npm ci --prefix remotion-composer
 
+      # Creator-watch remembers which episode it already mined so Funky Dineva
+      # (and peers that don't post nightly) keep contributing between uploads.
+      # Without this cache every Actions run starts cold and re-fetches captions.
+      - name: Restore creator-watch state
+        uses: actions/cache@v4
+        with:
+          path: creator-studio/out/fish/creator_watch_state.json
+          key: fish-creator-watch-state-${{ github.run_id }}
+          restore-keys: |
+            fish-creator-watch-state-
+
       - name: Run live daily digest
         run: |
           python -m studio.fish.daily_digest \
             --live \
             --social \
             --creator-watch \
+            --creator-watch-state creator-studio/out/fish/creator_watch_state.json \
             --output fish-digest-$(date -u +%Y-%m-%d).json
 
       - name: Show today's top stories

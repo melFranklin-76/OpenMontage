@@ -158,9 +158,14 @@ def test_recent_videos_is_soft_on_unreachable_feeds():
 
 # ── episode selection ────────────────────────────────────────────────────────
 
+def _iso(age_hours: float) -> str:
+    """Timestamp `age_hours` old. Relative on purpose: a hardcoded date would
+    quietly drift out of the freshness window and fail months from now."""
+    return (datetime.now(timezone.utc) - timedelta(hours=age_hours)).isoformat()
+
+
 def _videos(*pairs) -> list[dict]:
-    return [{"video_id": v, "title": t, "published": "2026-08-02T00:00:00+00:00"}
-            for v, t in pairs]
+    return [{"video_id": v, "title": t, "published": _iso(2)} for v, t in pairs]
 
 
 def _on_beat(words: int) -> str:
@@ -259,24 +264,143 @@ def test_fetch_budget_resets_after_a_usable_transcript():
     assert not budget.exhausted
 
 
-def test_signals_never_persist_creator_transcripts():
+def test_signals_never_persist_creator_transcripts(tmp_path):
     """Signals land in the digest artifact. Their words must not."""
     episode = {
-        "video_id": "e1", "title": "Pastor tithes backlash", "published": "p",
+        "video_id": "e1", "title": "Pastor tithes backlash",
+        "published": _iso(2),
         "transcript": "pastor pastor pastor tithes tithes tithes church church church",
     }
     with mock.patch.object(cw, "WATCHED_CHANNELS", {"Chan": "CID"}), \
+         mock.patch.object(cw, "recent_videos", return_value=[]), \
          mock.patch.object(cw, "pick_episode", return_value=episode):
-        signals = cw.creator_topic_signals()
+        signals = cw.creator_topic_signals(tmp_path / "state.json")
 
     assert signals["Chan"]["topics"]
     assert "transcript" not in signals["Chan"]
+    # ...and not into the remembered state either, which outlives the run.
+    assert "transcript" not in (tmp_path / "state.json").read_text()
 
 
-def test_signals_skip_channels_with_no_usable_episode():
+def test_signals_skip_channels_with_no_usable_episode(tmp_path):
     with mock.patch.object(cw, "WATCHED_CHANNELS", {"Chan": "CID"}), \
+         mock.patch.object(cw, "recent_videos", return_value=[]), \
          mock.patch.object(cw, "pick_episode", return_value=None):
-        assert cw.creator_topic_signals() == {}
+        assert cw.creator_topic_signals(tmp_path / "state.json") == {}
+
+
+# ── remembering episodes between runs ────────────────────────────────────────
+
+def test_an_episode_still_counts_on_the_nights_after_it_airs(tmp_path):
+    """The reason this exists: Funky Dineva goes live ~5 nights a week, and a
+    36h window meant a Tuesday episode was invisible by Thursday."""
+    state = tmp_path / "state.json"
+    videos = _videos(("live1", "Dineva LIVE: pastor tithes backlash"))
+
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Dineva": "CID"}), \
+         mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript",
+                           return_value=_on_beat(500)) as fetch:
+        first = cw.creator_topic_signals(state)
+        assert fetch.call_count == 1
+
+        # Next night: nothing new posted. The episode is still current, so it
+        # still contributes — and without a second caption fetch.
+        second = cw.creator_topic_signals(state)
+        assert fetch.call_count == 1
+
+    assert first["Dineva"]["topics"] == second["Dineva"]["topics"]
+    assert second["Dineva"]["video_id"] == "live1"
+
+
+def test_a_new_episode_replaces_the_remembered_one(tmp_path):
+    state = tmp_path / "state.json"
+    on_beat = _on_beat(500)
+
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Dineva": "CID"}):
+        with mock.patch.object(cw, "recent_videos",
+                               return_value=_videos(("old", "Older episode"))), \
+             mock.patch.object(cw, "fetch_transcript", return_value=on_beat):
+            cw.creator_topic_signals(state)
+
+        # A newer non-Short appears — it must win over the remembered episode.
+        newer = _videos(("new", "Newer episode"), ("old", "Older episode"))
+        with mock.patch.object(cw, "recent_videos", return_value=newer), \
+             mock.patch.object(cw, "fetch_transcript", return_value=on_beat) as fetch:
+            signals = cw.creator_topic_signals(state)
+
+    assert signals["Dineva"]["video_id"] == "new"
+    fetch.assert_called_once_with("new")
+
+
+def test_a_short_posted_after_the_episode_does_not_discard_it(tmp_path):
+    """A Short is not "something newer worth reading" — without this the
+    channel would lose its episode the moment it posted a clip."""
+    state = tmp_path / "state.json"
+    on_beat = _on_beat(500)
+
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Dineva": "CID"}):
+        with mock.patch.object(cw, "recent_videos",
+                               return_value=_videos(("live1", "The episode"))), \
+             mock.patch.object(cw, "fetch_transcript", return_value=on_beat):
+            cw.creator_topic_signals(state)
+
+        with_short = _videos(("clip", "Best bit #shorts"), ("live1", "The episode"))
+        with mock.patch.object(cw, "recent_videos", return_value=with_short), \
+             mock.patch.object(cw, "fetch_transcript") as fetch:
+            signals = cw.creator_topic_signals(state)
+
+    assert signals["Dineva"]["video_id"] == "live1"
+    fetch.assert_not_called()
+
+
+def test_an_unusable_new_upload_falls_back_to_the_remembered_episode(tmp_path):
+    """A vacation vlog posted after the real episode shouldn't cost the channel
+    its signal — it should just fail to replace it."""
+    state = tmp_path / "state.json"
+    on_beat = _on_beat(500)
+    off_beat = " ".join(["sandwich", "camera", "beach"] * 200)
+
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Dineva": "CID"}):
+        with mock.patch.object(cw, "recent_videos",
+                               return_value=_videos(("live1", "The episode"))), \
+             mock.patch.object(cw, "fetch_transcript", return_value=on_beat):
+            cw.creator_topic_signals(state)
+
+        newer = _videos(("vlog", "Antigua day 3"), ("live1", "The episode"))
+        with mock.patch.object(cw, "recent_videos", return_value=newer), \
+             mock.patch.object(cw, "fetch_transcript", return_value=off_beat):
+            signals = cw.creator_topic_signals(state)
+
+    assert signals["Dineva"]["video_id"] == "live1"
+
+
+def test_a_remembered_episode_expires_once_it_leaves_the_window():
+    """Otherwise a channel that stopped posting would lift stories forever."""
+    fresh = {"video_id": "a", "title": "t", "published": _iso(10), "topics": ["x"]}
+    stale = {"video_id": "b", "title": "t",
+             "published": _iso(cw.MAX_VIDEO_AGE_HOURS + 12), "topics": ["y"]}
+    kept = cw.prune_state({"FRESH": fresh, "STALE": stale})
+    assert list(kept) == ["FRESH"]
+
+
+def test_undated_state_entries_are_dropped_rather_than_trusted():
+    assert cw.prune_state({"C": {"video_id": "a", "topics": ["x"]}}) == {}
+    assert cw.prune_state({"C": {"published": "not-a-date", "topics": ["x"]}}) == {}
+
+
+def test_unreadable_state_is_not_fatal(tmp_path):
+    bad = tmp_path / "state.json"
+    bad.write_text("{not json")
+    assert cw.load_state(bad) == {}
+    assert cw.load_state(tmp_path / "missing.json") == {}
+
+
+def test_window_is_wide_enough_for_a_five_nights_a_week_channel():
+    # Guards the actual regression: at 36h a Tuesday episode was already gone
+    # by Thursday's 8pm run. 96h covers a mid-week miss; 120h also covers a
+    # weekend gap for a channel that posts ~5 nights a week.
+    assert cw.MAX_VIDEO_AGE_HOURS >= 96
 
 
 def test_filler_topics_are_dropped_from_a_real_sized_digest():
