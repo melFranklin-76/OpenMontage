@@ -53,9 +53,15 @@ WATCHED_CHANNELS = {
     "Funky Dineva": "UChIkZ9tdYNG78qoFF6oWSvA",
 }
 
-# Only consider uploads from roughly the prior night — an old video's topics
-# are stale signal.
-MAX_VIDEO_AGE_HOURS = 36
+# Freshness window. This used to be 36h, which silently assumed every watched
+# channel posts nightly. Funky Dineva goes live ~5 nights a week (sometimes a
+# morning show too), so a Tuesday episode was already invisible by Thursday
+# and the channel contributed nothing on the nights between uploads. The
+# window now only has to answer "is this still current?" — not re-reading an
+# episode we already mined is the state store's job (see `load_state`).
+# 120h covers a mid-week miss plus a weekend gap without letting week-old
+# topics keep steering the digest.
+MAX_VIDEO_AGE_HOURS = 120
 
 # How far back through a channel's recent uploads to look for the episode.
 MAX_VIDEOS_PER_CHANNEL = 6
@@ -80,6 +86,12 @@ _SHORTS_TITLE_RE = re.compile(r"#shorts?\b", re.IGNORECASE)
 # may move our ranking. Require recurrence: one passing mention across half an
 # hour is not an episode about the beat. That vlog scored zero.
 MIN_EDITORIAL_MENTIONS = 3
+
+# Where mined topics are remembered between nightly runs, so an episode is
+# read once and then reused while it stays current. CI is ephemeral — this
+# path must be restored/saved by the workflow (actions/cache) or every run
+# starts cold and re-fetches captions it already has.
+DEFAULT_STATE_PATH = Path("creator-studio/out/fish/creator_watch_state.json")
 
 # Scoring: each matched topic adds BOOST_PER_TOPIC to a story's relevance,
 # up to MAX_BOOST total. Small on purpose — peer overlap should break ties
@@ -259,6 +271,73 @@ class _FetchBudget:
         self.consecutive_failures = 0 if usable else self.consecutive_failures + 1
 
 
+# ── state ────────────────────────────────────────────────────────────────────
+
+def load_state(path: Path | None = None) -> dict[str, dict]:
+    """Topics mined on previous nights, keyed by channel id.
+
+    Each value is {"video_id", "title", "published", "topics"}. Missing or
+    unreadable state is not an error — it just means every channel is read
+    fresh tonight.
+    """
+    path = path or DEFAULT_STATE_PATH
+    try:
+        data = json.loads(Path(path).read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        print(f"[creator_watch] ignoring unreadable state at {path}: {exc}",
+              file=sys.stderr)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_state(state: dict[str, dict], path: Path | None = None) -> None:
+    """Persist mined topics. Failure is logged, never fatal — the digest still
+    ships, it just re-reads captions next run."""
+    path = Path(path or DEFAULT_STATE_PATH)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        print(f"[creator_watch] could not write state to {path}: {exc}",
+              file=sys.stderr)
+
+
+def prune_state(state: dict[str, dict], now: datetime | None = None) -> dict[str, dict]:
+    """Drop remembered episodes that have aged past the freshness window.
+
+    Without this a channel that stops posting would keep lifting stories off a
+    week-old episode forever. Entries with an unparseable timestamp are dropped
+    too — better to re-read the channel than to trust a date we can't check.
+    """
+    now = now or datetime.now(timezone.utc)
+    kept: dict[str, dict] = {}
+    for cid, entry in state.items():
+        try:
+            when = datetime.fromisoformat(entry["published"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if now - when <= timedelta(hours=MAX_VIDEO_AGE_HOURS):
+            kept[cid] = entry
+    return kept
+
+
+def newest_candidate_id(videos: list[dict]) -> str | None:
+    """Id of the newest upload worth spending a caption fetch on.
+
+    Shorts are excluded because `pick_episode` would skip them anyway. Used to
+    decide whether anything has actually appeared since the last run: if the
+    answer is the episode already in state, there is nothing new to fetch.
+    """
+    for video in videos:
+        if not _SHORTS_TITLE_RE.search(video["title"]):
+            return video["video_id"]
+    return None
+
+
 def editorial_mentions(transcript: str, title: str = "") -> int:
     """How often an episode touches the show's beat.
 
@@ -272,7 +351,8 @@ def editorial_mentions(transcript: str, title: str = "") -> int:
 
 
 def pick_episode(channel_id: str, label: str = "",
-                 budget: "_FetchBudget | None" = None) -> dict | None:
+                 budget: "_FetchBudget | None" = None,
+                 videos: list[dict] | None = None) -> dict | None:
     """Newest recent upload that is actually an episode about our beat.
 
     The newest upload is usually a Short, whose handful of caption words never
@@ -281,12 +361,15 @@ def pick_episode(channel_id: str, label: str = "",
     a vacation vlog. Walk back instead, skipping self-declared Shorts, thin
     transcripts, and off-beat episodes. The transcript rides along so callers
     needn't refetch it.
+
+    `videos` lets a caller that has already read the channel's feed pass it in
+    rather than paying for a second request.
     """
     budget = budget if budget is not None else _FetchBudget()
     who = label or channel_id
     attempts = 0
 
-    for video in recent_videos(channel_id):
+    for video in (recent_videos(channel_id) if videos is None else videos):
         if _SHORTS_TITLE_RE.search(video["title"]):
             continue
         if attempts >= MAX_TRANSCRIPT_ATTEMPTS:
@@ -358,31 +441,69 @@ def extract_topics(transcript: str, video_title: str = "", top_n: int = 25) -> l
     return ranked[:top_n]
 
 
-def creator_topic_signals() -> dict[str, dict]:
-    """Topics from each watched channel's latest episode. Fails soft per channel."""
+def creator_topic_signals(state_path: Path | None = None) -> dict[str, dict]:
+    """Topics from each watched channel's current episode. Fails soft per channel.
+
+    An episode is mined once and then reused for as long as it stays inside the
+    freshness window, so a channel that posts ~5 nights a week keeps
+    contributing on the nights between its uploads. Reuse also means no caption
+    fetch, which keeps yt-dlp exposure (and its CI bot-walling) to the nights
+    something genuinely new appeared.
+    """
     signals: dict[str, dict] = {}
+    state = load_state(state_path)
     budget = _FetchBudget()
+
     for name, cid in WATCHED_CHANNELS.items():
-        episode = pick_episode(cid, label=name, budget=budget)
-        if not episode:
-            print(f"[creator_watch] {name}: no usable episode tonight",
+        videos = recent_videos(cid)
+        cached = state.get(cid)
+
+        # Nothing newer than what we already mined → reuse it, no fetch.
+        if cached and cached.get("topics") and (
+                newest_candidate_id(videos) == cached.get("video_id")):
+            signals[name] = {k: cached[k] for k in
+                             ("video_id", "title", "published", "topics")}
+            print(f"[creator_watch] {name}: reusing {cached['title']!r} "
+                  f"({len(cached['topics'])} topics, still current)",
                   file=sys.stderr)
             continue
+
+        episode = pick_episode(cid, label=name, budget=budget, videos=videos)
+        if not episode:
+            # A newer upload existed but wasn't usable (Short, off-beat, no
+            # captions). The previously mined episode is still current, so it
+            # remains the channel's best available signal.
+            if cached and cached.get("topics"):
+                signals[name] = {k: cached[k] for k in
+                                 ("video_id", "title", "published", "topics")}
+                print(f"[creator_watch] {name}: nothing usable newer — falling "
+                      f"back to {cached['title']!r}", file=sys.stderr)
+            else:
+                print(f"[creator_watch] {name}: no usable episode tonight",
+                      file=sys.stderr)
+            continue
+
         topics = extract_topics(episode["transcript"], video_title=episode["title"])
         if not topics:
             print(f"[creator_watch] {name}: {episode['title']!r} yielded no "
                   f"topics", file=sys.stderr)
             continue
+
         # Deliberately drop `transcript`: signals are written to the digest
         # artifact, and their words must never be persisted alongside ours.
-        signals[name] = {
+        entry = {
             "video_id": episode["video_id"],
             "title": episode["title"],
             "published": episode["published"],
             "topics": topics,
         }
+        signals[name] = entry
+        state[cid] = entry
         print(f"[creator_watch] {name}: {episode['title']!r} → "
               f"{len(topics)} topics", file=sys.stderr)
+
+    state = prune_state(state)
+    save_state(state, state_path)
 
     print(f"[creator_watch] {len(signals)}/{len(WATCHED_CHANNELS)} channels "
           f"produced signal", file=sys.stderr)
@@ -467,9 +588,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Report topics from watched creators' latest episodes")
     parser.add_argument("--output", required=True, help="Signals JSON path")
+    parser.add_argument("--state", default=None,
+                        help="Where mined topics are remembered between runs "
+                             f"(default: {DEFAULT_STATE_PATH})")
     args = parser.parse_args()
 
-    signals = creator_topic_signals()
+    signals = creator_topic_signals(Path(args.state) if args.state else None)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(signals, indent=2) + "\n")

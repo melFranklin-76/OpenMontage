@@ -89,5 +89,11 @@ remotion-composer/public/demo-props/caption-burn-*
 # FISH approval queue (local review state)
 creator-studio/out/fish/queue/
 
+# FISH creator-watch memory (regenerated nightly; CI restores via actions/cache)
+creator-studio/out/fish/creator_watch_state.json
+
+# Local FISH renders (regenerable — never commit large media)
+creator-studio/outputs/
+
 # Local run outputs (regenerable)
 /out/
