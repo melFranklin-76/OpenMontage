@@ -20,9 +20,11 @@ import re
 import sys
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 PEXELS_SEARCH_URL = "https://api.pexels.com/videos/search"
+PIXABAY_SEARCH_URL = "https://pixabay.com/api/videos/"
 
 # Words that carry no visual-search value
 _STOPWORDS = {
@@ -47,6 +49,32 @@ LANE_SEARCH_TERMS = {
     "trans": "trans rights rally support",
 }
 DEFAULT_SEARCH_TERM = "pride rainbow flag community"
+
+# These subjects are especially damaging when they appear under unrelated
+# adult news. They remain available when the headline is actually about them.
+_SENSITIVE_VISUAL_TERMS = {
+    "baby", "babies", "boy", "child", "children", "daughter", "family",
+    "father", "girl", "infant", "kid", "kids", "mother", "parent", "parents",
+    "son",
+}
+
+
+@dataclass(frozen=True)
+class VisualBrief:
+    """Acceptance criteria for one stock-footage request."""
+
+    query: str
+    required_terms: frozenset[str]
+    forbidden_terms: frozenset[str]
+
+
+@dataclass(frozen=True)
+class BrollCandidate:
+    """A stock-video result with enough context to validate before download."""
+
+    download_url: str
+    source_url: str
+    descriptor: str
 
 
 # Story subject → stock-footage concept.
@@ -117,6 +145,50 @@ def topic_query(title: str) -> str:
         if any(_keyword_hit(kw, low) for kw in keywords):
             return visual
     return ""
+
+
+def build_visual_brief(title: str, query: str) -> VisualBrief:
+    """Build strict stock-footage acceptance criteria for a story.
+
+    Stock APIs can return surprising fuzzy matches. The result metadata must
+    overlap the curated visual concept, and sensitive family/child terms are
+    rejected unless the story itself asks for them.
+    """
+
+    title_words = set(re.findall(r"[a-z]+", title.lower()))
+    required = {
+        word for word in re.findall(r"[a-z]+", query.lower())
+        if len(word) > 3 and word not in _STOPWORDS
+    }
+    forbidden = {
+        word for word in _SENSITIVE_VISUAL_TERMS
+        if word not in title_words
+    }
+    return VisualBrief(
+        query=query,
+        required_terms=frozenset(required),
+        forbidden_terms=frozenset(forbidden),
+    )
+
+
+def candidate_matches_brief(candidate: BrollCandidate, brief: VisualBrief) -> bool:
+    """True when stock metadata supports the requested visual concept."""
+
+    words = set(re.findall(r"[a-z]+", candidate.descriptor.lower()))
+    if not words or words & brief.forbidden_terms:
+        return False
+    return bool(words & brief.required_terms)
+
+
+def _url_descriptor(source_url: str) -> str:
+    """Turn a descriptive stock result URL into searchable text."""
+
+    path = urllib.parse.urlparse(source_url).path.strip("/")
+    if not path:
+        return ""
+    slug = path.rsplit("/", 1)[-1]
+    slug = re.sub(r"-?\d+$", "", slug)
+    return " ".join(re.findall(r"[A-Za-z]+", slug))
 
 
 # Capitalized words that make a Capitalized-Bigram an institution, place, or
@@ -192,17 +264,23 @@ def _api_key() -> str:
     return os.environ.get("PEXELS_API_KEY", "")
 
 
+def _pixabay_api_key() -> str:
+    return os.environ.get("PIXABAY_API_KEY", "")
+
+
 def search_broll(
     query: str,
     orientation: str = "landscape",
     min_width: int = 1280,
     timeout: int = 15,
+    brief: VisualBrief | None = None,
 ) -> str | None:
-    """Return the best matching Pexels video file URL, or None.
+    """Return the first validated Pexels video file URL, or None.
 
     orientation: "landscape" (roundup) or "portrait" (shorts).
     Picks the smallest video file that still meets min_width — full 4K
-    downloads are a waste of CI bandwidth.
+    downloads are a waste of CI bandwidth. When a brief is supplied,
+    descriptive result metadata must support the visual concept.
     """
     key = _api_key()
     if not key:
@@ -226,6 +304,12 @@ def search_broll(
         return None
 
     for video in data.get("videos", []):
+        source_url = str(video.get("url") or "")
+        descriptor = " ".join((
+            _url_descriptor(source_url),
+            str(video.get("alt") or ""),
+            str(video.get("description") or ""),
+        )).strip()
         files = video.get("video_files", [])
         candidates = [
             f for f in files
@@ -235,7 +319,91 @@ def search_broll(
         if not candidates:
             continue
         best = min(candidates, key=lambda f: f.get("width", 10**9))
-        return best["link"]
+        candidate = BrollCandidate(
+            download_url=best["link"],
+            source_url=source_url,
+            descriptor=descriptor,
+        )
+        if brief is not None and not candidate_matches_brief(candidate, brief):
+            print(
+                f"[broll] rejected Pexels metadata mismatch for {query!r}: "
+                f"{descriptor or 'opaque result'}",
+                file=sys.stderr,
+            )
+            continue
+        return candidate.download_url
+    return None
+
+
+def _pixabay_orientation(value: str) -> str:
+    return "vertical" if value == "portrait" else "horizontal"
+
+
+def _best_pixabay_video_url(videos: dict, min_width: int) -> str:
+    """Pick the smallest usable Pixabay rendition at or above min_width."""
+
+    candidates = []
+    for rendition in videos.values():
+        url = rendition.get("url")
+        width = int(rendition.get("width") or 0)
+        if url and width >= min_width:
+            candidates.append((width, url))
+    if not candidates:
+        return ""
+    return min(candidates, key=lambda item: item[0])[1]
+
+
+def search_pixabay_broll(
+    query: str,
+    orientation: str = "landscape",
+    min_width: int = 1280,
+    timeout: int = 15,
+    brief: VisualBrief | None = None,
+) -> str | None:
+    """Return the first validated Pixabay video URL, or None."""
+
+    key = _pixabay_api_key()
+    if not key:
+        return None
+
+    params = urllib.parse.urlencode({
+        "key": key,
+        "q": query,
+        "video_type": "film",
+        "orientation": _pixabay_orientation(orientation),
+        "per_page": 5,
+        "safesearch": "true",
+    })
+    try:
+        data = json.loads(
+            urllib.request.urlopen(f"{PIXABAY_SEARCH_URL}?{params}", timeout=timeout).read()
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[broll] pixabay search failed ({query!r}): {exc}", file=sys.stderr)
+        return None
+
+    for hit in data.get("hits", []):
+        download_url = _best_pixabay_video_url(hit.get("videos", {}), min_width)
+        if not download_url:
+            continue
+        source_url = str(hit.get("pageURL") or "")
+        descriptor = " ".join((
+            _url_descriptor(source_url),
+            str(hit.get("tags") or ""),
+        )).strip()
+        candidate = BrollCandidate(
+            download_url=download_url,
+            source_url=source_url,
+            descriptor=descriptor,
+        )
+        if brief is not None and not candidate_matches_brief(candidate, brief):
+            print(
+                f"[broll] rejected Pixabay metadata mismatch for {query!r}: "
+                f"{descriptor or 'opaque result'}",
+                file=sys.stderr,
+            )
+            continue
+        return candidate.download_url
     return None
 
 
@@ -277,7 +445,7 @@ def fetch_broll_for_story(
     - mode="any": specific, then lane, in one call (for callers that have no
       hero-image rung between them).
     """
-    if not _api_key():
+    if not (_api_key() or _pixabay_api_key()):
         return None
 
     queries: list[str] = []
@@ -288,10 +456,18 @@ def fetch_broll_for_story(
     queries = [q for q in queries if q]
 
     for query in queries:
-        url = search_broll(query, orientation=orientation)
-        if url:
-            got = download_broll(url, out_path)
-            if got:
-                print(f"[broll] fetched clip for {query!r}", file=sys.stderr)
-                return got
+        brief = build_visual_brief(title, query)
+        for provider, search in (
+            ("Pexels", search_broll),
+            ("Pixabay", search_pixabay_broll),
+        ):
+            url = search(query, orientation=orientation, brief=brief)
+            if url:
+                got = download_broll(url, out_path)
+                if got:
+                    print(
+                        f"[broll] fetched {provider} clip for {query!r}",
+                        file=sys.stderr,
+                    )
+                    return got
     return None

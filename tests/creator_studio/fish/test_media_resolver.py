@@ -94,6 +94,7 @@ def test_resolver_prefers_best_exact_candidate(monkeypatch) -> None:
         "Sylvia Rivera",
     )
     monkeypatch.setattr(media, "search_wikimedia", lambda _subject: [weaker])
+    monkeypatch.setattr(media, "search_internet_archive", lambda _subject: [])
     monkeypatch.setattr(media, "search_openverse", lambda _subject: [exact])
 
     assert media.resolve_story_media("Sylvia Rivera remembered by activists") == exact
@@ -191,3 +192,78 @@ def test_video_outranks_image_at_equal_score() -> None:
         query="q")
     best = max([img, vid], key=lambda a: (a.match_score, a.kind == "video"))
     assert best.kind == "video"
+
+
+def test_search_internet_archive_returns_approved_video(monkeypatch) -> None:
+    def fake_get_json(url, _timeout=10):
+        if url.startswith(media.INTERNET_ARCHIVE_SEARCH_API):
+            return {"response": {"docs": [{
+                "identifier": "bayard-rustin-march",
+                "title": "Bayard Rustin speaking at a march",
+                "description": "Bayard Rustin civil rights speech footage",
+                "subject": ["Bayard Rustin", "civil rights"],
+                "creator": "Public Archives",
+                "licenseurl": "https://creativecommons.org/licenses/by/4.0/",
+            }]}}
+        assert "bayard-rustin-march" in url
+        return {
+            "metadata": {
+                "title": "Bayard Rustin speaking at a march",
+                "creator": "Public Archives",
+                "licenseurl": "https://creativecommons.org/licenses/by/4.0/",
+            },
+            "files": [
+                {"name": "poster.jpg", "format": "JPEG", "size": "5000"},
+                {"name": "speech.mp4", "format": "h.264", "size": "50000000"},
+            ],
+        }
+
+    monkeypatch.setattr(media, "_get_json", fake_get_json)
+
+    assets = media.search_internet_archive("Bayard Rustin")
+
+    assert len(assets) == 1
+    assert assets[0].provider == "Internet Archive"
+    assert assets[0].kind == "video"
+    assert assets[0].download_url.endswith("/bayard-rustin-march/speech.mp4")
+    assert assets[0].rights_status == "approved_open"
+
+
+def test_search_internet_archive_rejects_restricted_license(monkeypatch) -> None:
+    def fake_get_json(url, _timeout=10):
+        if url.startswith(media.INTERNET_ARCHIVE_SEARCH_API):
+            return {"response": {"docs": [{
+                "identifier": "restricted",
+                "title": "Bayard Rustin interview",
+                "description": "Bayard Rustin interview",
+                "subject": "Bayard Rustin",
+                "licenseurl": "https://creativecommons.org/licenses/by-nc/4.0/",
+            }]}}
+        return {
+            "metadata": {"licenseurl": "https://creativecommons.org/licenses/by-nc/4.0/"},
+            "files": [{"name": "interview.mp4", "format": "h.264", "size": "50000000"}],
+        }
+
+    monkeypatch.setattr(media, "_get_json", fake_get_json)
+
+    assert media.search_internet_archive("Bayard Rustin") == []
+
+
+def test_resolver_prefers_archive_video_before_openverse_image(monkeypatch) -> None:
+    video = media.MediaAsset(
+        "Bayard Rustin", "video", "Internet Archive", "https://archive",
+        "https://archive/video.mp4", "Archive", "CC BY", "https://license",
+        "Archive via Internet Archive, CC BY", "approved_open", 1.0,
+        "Bayard Rustin",
+    )
+    image = media.MediaAsset(
+        "Bayard Rustin", "image", "Openverse", "https://image",
+        "https://image/image.jpg", "Photo", "CC0", "https://license",
+        "Photo via Openverse, CC0", "approved_open", 1.0,
+        "Bayard Rustin",
+    )
+    monkeypatch.setattr(media, "search_wikimedia", lambda _subject: [])
+    monkeypatch.setattr(media, "search_internet_archive", lambda _subject: [video])
+    monkeypatch.setattr(media, "search_openverse", lambda _subject: [image])
+
+    assert media.resolve_story_media("Bayard Rustin honored by organizers") == video

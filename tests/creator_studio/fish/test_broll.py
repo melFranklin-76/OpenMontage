@@ -16,6 +16,7 @@ def _capture_queries(monkeypatch):
         return None
 
     monkeypatch.setenv("PEXELS_API_KEY", "test-key")
+    monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
     monkeypatch.setattr(broll, "search_broll", fake_search)
     return sent
 
@@ -130,6 +131,77 @@ def test_search_broll_returns_none_without_key(monkeypatch):
 
 def test_fetch_broll_returns_none_without_key(monkeypatch, tmp_path):
     monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
     got = broll.fetch_broll_for_story("Title", "gay", tmp_path / "x.mp4")
     assert got is None
     assert not (tmp_path / "x.mp4").exists()
+
+
+def test_candidate_matches_brief_requires_relevant_safe_metadata():
+    brief = broll.build_visual_brief(
+        "Historic gay bar closes after 40 years",
+        "nightclub stage lights",
+    )
+
+    assert broll.candidate_matches_brief(
+        broll.BrollCandidate("https://clip", "https://source", "nightclub stage lights"),
+        brief,
+    )
+    assert not broll.candidate_matches_brief(
+        broll.BrollCandidate("https://clip", "https://source", "mother and children at home"),
+        brief,
+    )
+    assert not broll.candidate_matches_brief(
+        broll.BrollCandidate("https://clip", "https://source", ""),
+        brief,
+    )
+
+
+def test_search_pixabay_broll_rejects_unrelated_metadata(monkeypatch):
+    class Response:
+        def read(self):
+            return b"""{
+                "hits": [
+                    {
+                        "pageURL": "https://pixabay.com/videos/mother-family-1",
+                        "tags": "mother, child, family",
+                        "videos": {"large": {"url": "https://bad.example/clip.mp4", "width": 1920}}
+                    },
+                    {
+                        "pageURL": "https://pixabay.com/videos/courthouse-justice-2",
+                        "tags": "courthouse, justice, gavel",
+                        "videos": {"medium": {"url": "https://good.example/clip.mp4", "width": 1280}}
+                    }
+                ]
+            }"""
+
+    monkeypatch.setenv("PIXABAY_API_KEY", "test-key")
+    monkeypatch.setattr(broll.urllib.request, "urlopen", lambda *_a, **_k: Response())
+
+    url = broll.search_pixabay_broll(
+        "courthouse justice gavel",
+        brief=broll.build_visual_brief("Supreme Court hears marriage case", "courthouse justice gavel"),
+    )
+
+    assert url == "https://good.example/clip.mp4"
+
+
+def test_fetch_broll_falls_back_to_pixabay(monkeypatch, tmp_path):
+    out = tmp_path / "clip.mp4"
+
+    monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    monkeypatch.setenv("PIXABAY_API_KEY", "test-key")
+    monkeypatch.setattr(broll, "search_pixabay_broll", lambda *_a, **_k: "https://good/clip.mp4")
+
+    def fake_download(_url, out_path):
+        out_path.write_bytes(b"x" * 100_000)
+        return out_path
+
+    monkeypatch.setattr(broll, "download_broll", fake_download)
+
+    assert broll.fetch_broll_for_story(
+        "Supreme Court hears marriage case",
+        "gay",
+        out,
+        mode="specific",
+    ) == out

@@ -20,6 +20,9 @@ from .broll import _NON_PERSON_WORDS as _BROLL_NON_PERSON_WORDS
 from .broll import title_is_title_case
 
 WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php"
+INTERNET_ARCHIVE_SEARCH_API = "https://archive.org/advancedsearch.php"
+INTERNET_ARCHIVE_METADATA_API = "https://archive.org/metadata"
+INTERNET_ARCHIVE_DOWNLOAD_BASE = "https://archive.org/download"
 OPENVERSE_API = "https://api.openverse.org/v1/images/"
 USER_AGENT = "OpenMontage-FISH/1.0 (licensed editorial media resolver)"
 
@@ -89,6 +92,10 @@ def _license_key(value: str) -> str:
         return "public domain"
     if "cc0" in low or "zero" in low:
         return "cc0"
+    if "/by-sa/" in low:
+        return "by-sa"
+    if "/by/" in low:
+        return "by"
     if "by-sa" in low or "attribution-sharealike" in low or "share alike" in low:
         return "by-sa"
     if re.search(r"\bcc[ -]?by\b", low) or low in {"by", "attribution"}:
@@ -247,6 +254,101 @@ def search_wikimedia(subject: str, timeout: int = 10) -> list[MediaAsset]:
     )
 
 
+def _archive_video_file(files: list[dict]) -> str:
+    """Pick a reusable-size video file name from an Internet Archive item."""
+
+    candidates = []
+    for file in files:
+        name = str(file.get("name") or "")
+        if not name:
+            continue
+        fmt = str(file.get("format") or "").lower()
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext not in {"mp4", "m4v", "mov", "webm", "ogv", "ogg"}:
+            continue
+        if "h.264" not in fmt and ext not in {"mp4", "m4v", "mov", "webm", "ogv", "ogg"}:
+            continue
+        try:
+            size = int(file.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        if size and size > _MAX_VIDEO_BYTES:
+            continue
+        candidates.append((size or _MAX_VIDEO_BYTES, name))
+    if not candidates:
+        return ""
+    return min(candidates, key=lambda item: item[0])[1]
+
+
+def search_internet_archive(subject: str, timeout: int = 10) -> list[MediaAsset]:
+    """Search Internet Archive movies for reusable, subject-matching footage."""
+
+    params = urllib.parse.urlencode([
+        ("q", f'mediatype:movies AND ({subject})'),
+        ("fl[]", "identifier"),
+        ("fl[]", "title"),
+        ("fl[]", "description"),
+        ("fl[]", "subject"),
+        ("fl[]", "creator"),
+        ("fl[]", "licenseurl"),
+        ("rows", "8"),
+        ("output", "json"),
+    ])
+    data = _get_json(f"{INTERNET_ARCHIVE_SEARCH_API}?{params}", timeout)
+    docs = data.get("response", {}).get("docs", [])
+    assets: list[MediaAsset] = []
+
+    for doc in docs:
+        identifier = str(doc.get("identifier") or "")
+        if not identifier:
+            continue
+        metadata = _get_json(
+            f"{INTERNET_ARCHIVE_METADATA_API}/{urllib.parse.quote(identifier)}",
+            timeout,
+        )
+        item_meta = metadata.get("metadata", {}) or {}
+        files = metadata.get("files", []) or []
+
+        license_name = _plain(
+            item_meta.get("licenseurl")
+            or doc.get("licenseurl")
+            or item_meta.get("rights")
+            or doc.get("rights")
+        )
+        if not is_approved_license(license_name):
+            continue
+
+        candidate_text = " ".join((
+            _plain(doc.get("title") or item_meta.get("title")),
+            _plain(doc.get("description") or item_meta.get("description")),
+            _plain(doc.get("subject") or item_meta.get("subject")),
+        ))
+        score = _match_score(subject, candidate_text)
+        if score < 0.7:
+            continue
+
+        file_name = _archive_video_file(files)
+        if not file_name:
+            continue
+
+        creator = _plain(item_meta.get("creator") or doc.get("creator")) or "Unknown creator"
+        source_url = f"https://archive.org/details/{identifier}"
+        download_url = (
+            f"{INTERNET_ARCHIVE_DOWNLOAD_BASE}/"
+            f"{urllib.parse.quote(identifier)}/{urllib.parse.quote(file_name)}"
+        )
+        attribution = f"{creator} via Internet Archive, {license_name}"
+        assets.append(MediaAsset(
+            subject=subject, kind="video", provider="Internet Archive",
+            source_url=source_url, download_url=download_url, creator=creator,
+            license=license_name, license_url=license_name,
+            attribution=attribution, rights_status="approved_open",
+            match_score=score, query=subject,
+        ))
+
+    return sorted(assets, key=lambda asset: asset.match_score, reverse=True)
+
+
 def search_openverse(subject: str, timeout: int = 10) -> list[MediaAsset]:
     params = urllib.parse.urlencode({
         "q": subject,
@@ -297,7 +399,7 @@ def resolve_story_media(title: str, summary: str = "") -> MediaAsset | None:
         if len(_tokens(subject)) < 2:
             continue
         candidates: list[MediaAsset] = []
-        for search in (search_wikimedia, search_openverse):
+        for search in (search_wikimedia, search_internet_archive, search_openverse):
             try:
                 found = search(subject)
                 candidates.extend(found)
