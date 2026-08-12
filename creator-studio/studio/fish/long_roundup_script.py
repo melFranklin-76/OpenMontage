@@ -2,7 +2,7 @@
 
 Chains the top-N ranked stories from a daily digest into a single ~24-minute
 YouTube long-form script: cold open, intro, N story chapters (each with a
-lane-tinted title reveal, hook, story body, why-it-matters, and transition
+lane-tinted title reveal, hook, story body, replaceable editorial context, and transition
 to the next), and an outro with CTA + hashtags.
 
 Output shape (drop-in for long_roundup_render.py):
@@ -42,50 +42,36 @@ from pathlib import Path
 
 from .daily_digest import build_daily_candidates
 from .intake import fetch_live_stories
-from .reel_script import BASE_HASHTAGS, LANE_HASHTAGS, LANE_WHY_LINES, _truncate_words
+from .reel_script import (
+    BASE_HASHTAGS,
+    LANE_HASHTAGS,
+    _truncate_words,
+    editorial_context,
+)
 
 SHOW_NAME = "What's the LGBT, Fish?"
 TARGET_STORY_COUNT = 10
 WORDS_PER_SECOND = 2.5      # ~150 WPM Piper speaking rate
 
-# Tone note: the host register is gay male queer-news commentary —
-# direct address, campy energy, opinionated asides — in the spirit of
-# creators like Funky Dineva. Facts stay straight; delivery has flavor.
-# Keep it monetization-safe: no slurs, no defamation, no unverified tea.
-
-# Direct-address terms in the ballroom register, rotated deterministically so
-# a given story always lands the same one. Upper-cased on purpose: the TTS
-# hits them harder, and they're meant to be the punch that lands on the beat
-# right after a pause.
-ADDRESS_TERMS = ("GHOULS", "FISH", "QUEEN", "BRICK")
-
-
-def _address(i: int) -> str:
-    """Deterministic direct-address term for section/story index ``i``."""
-    return ADDRESS_TERMS[i % len(ADDRESS_TERMS)]
+# Warm, direct queer-news host. Facts lead and personality supports them.
+# Avoid borrowed creator mannerisms and repeated catchphrases that make the
+# show sound like a caricature instead of Mel.
 
 
 COLD_OPEN_LINES = [
-    "Hey y'all, hey. It is your girl, and this is What's the LGBT, Fish? — "
-    "the only roundup that respects you enough to hand you the truth instead "
-    "of the press release. {count_word} stories today... GHOULS. No fluff, no "
-    "filler, and absolutely no both-sides-ing our own existence. Just what "
-    "happened, who it happened to, and why you need to know it before "
-    "somebody's cousin misquotes it in a group chat.",
+    "Tonight on What's the LGBT, Fish?: {count_word} stories shaping queer life "
+    "right now. We will separate what happened from the noise, name the people "
+    "at the center, and tell you what to watch next.",
 ]
 
 INTRO_LINES_TEMPLATE = (
-    "Alright. Today is {date_readable}, and the news did not take a day off — "
-    "we've got {count_word} stories from {lanes_summary}. "
-    "One ground rule before we start, because I keep it honest: the order "
-    "comes from our relevance scoring, not from me playing favorites. Four "
-    "lanes — lesbian, gay, bisexual, and trans — and every single story "
-    "earned its seat at this table. Some of this you will not find on "
-    "anybody's front page. That is not an accident. That is the entire reason "
-    "we are here. So pour yourself a lil COCKtail... QUEEN... and let's get "
-    "into it."
+    "It is {date_readable}. We have {count_word} stories from {lanes_summary}. "
+    "The order comes from relevance, not outrage, and every source is linked "
+    "below. Let us get into the first story."
 )
 
+# Legacy lines are retained so `host_take` can recognize and upgrade scripts
+# generated before the story-specific context slots were introduced.
 LANE_ANALYSIS_LINES = {
     "gay": (
         "And listen — visibility is not a trophy you win once and put on a "
@@ -126,33 +112,25 @@ NUMBER_WORDS = {
 }
 
 TRANSITION_LINES = [
-    "Moving right along. The T does not steep itself.",
-    "Hold that thought... FISH. This next one is worse.",
-    "Deep breath. Story {next_n}.",
-    "Meanwhile, in a completely different corner of the community...",
-    "And just when you thought the day was finished... it was not.",
-    "Speaking of stories that deserved more attention than they got.",
-    "This next one I need you to actually hear me on... QUEEN.",
-    "Next story. We have things to discuss.",
-    "That was story {n}. Story {next_n} is where it gets stupid.",
-    "Let me sip. This next one took me OUT.",
-    "Still with me... GHOULS? Good. We are not done.",
-    "Switch gears with me for a second.",
-    "And the news just kept on newsing... BRICK.",
-    "This next story? I have thoughts. You're going to hear them.",
+    "Next, a story that deserves a closer look.",
+    "Now let us turn to story {next_n}.",
+    "That brings us to a different part of the community.",
+    "The next headline needs some context.",
+    "Here is another story that could be easy to miss.",
+    "Now, a shift from policy to people.",
+    "Keep that context in mind as we move to story {next_n}.",
+    "The next development is still unfolding.",
+    "That was story {n}. Here is what comes next.",
+    "Now let us look at who is affected by the next headline.",
+    "We are not done yet. Story {next_n}.",
+    "Switching gears for a moment.",
 ]
 
 OUTRO_LINES_TEMPLATE = (
-    "And THAT is {count_word_lower} stories in {total_min} minutes. You are "
-    "officially caught up, and nobody at brunch can tell you a thing. If any "
-    "of these hit you somewhere real, get in those comments and talk to me — "
-    "the algorithm rewards conversation, and I reward good T. Every source is "
-    "linked in the description with chapter timestamps, so if somebody in "
-    "your life needs exactly ONE of these stories, you can send them straight "
-    "to it. Clip it, share it, forward it to your messiest group chat. Follow "
-    "for tomorrow's roundup — same time, same energy, same four lanes. And "
-    "until then, you know what to do... GHOULS. Keep asking... what's the "
-    "LGBT, Fish? Okay bye."
+    "That is {count_word_lower} stories in about {total_min} minutes. Sources "
+    "and chapter timestamps are in the description. Tell me which story needs "
+    "a deeper follow-up, share this roundup with someone who missed the news, "
+    "and come back tomorrow for What's the LGBT, Fish?"
 )
 
 
@@ -318,28 +296,24 @@ def _story_narration(
     after the hook to give each block real journalistic depth instead of
     the 12-word RSS summary alone.
 
-    ``index`` selects the rotating direct-address term so the same story
-    always lands the same one.
+    ``index`` is retained for API compatibility with existing callers.
     """
     title = story.get("title", "").strip()
     summary = story.get("summary", "").strip()
     source = story.get("source", "").strip()
-    lane = story.get("matched_lane") or story.get("lane") or ""
-    who = _address(index)
 
     hook = title.rstrip(".") + "."
     parts: list[str] = [hook]
 
     if article_sentences:
-        # Dry and literal: we are serving the T, not "the rundown".
-        parts.append(f"\nSo here's the T... {who}.\n")
+        parts.append("\nHere is what the reporting says.\n")
         connectors = [
             None, None,
-            "\nAnd here is where it gets stupid.\n",
+            "\nHere is the next important detail.\n",
             None,
-            "\nIt did not stop there.\n",
+            "\nThe reporting also shows this.\n",
             None, None,
-            "\nStay with me. There's more.\n",
+            "\nThere is more context.\n",
             None, None,
         ]
         for j, sent in enumerate(article_sentences[:10]):
@@ -352,25 +326,16 @@ def _story_narration(
                 parts.append(clean)
     elif summary:
         clean_summary = re.sub(r"https?://\S+", "", _truncate_words(summary, 80))
-        parts.append(f"\nSo here's the T... {who}.\n")
+        parts.append("\nHere is what we know.\n")
         parts.append(clean_summary)
         parts.append(
-            "\nThat is the short version. The wire copy was stingy today, "
-            "so we'll keep this one tight and let the source fill in the rest.\n"
+            "\nThe available report is brief, so we will not add details the "
+            "source has not confirmed.\n"
         )
-
-    parts.append("\nSo why does this matter?\n")
-    parts.append(LANE_WHY_LINES.get(lane, "This story matters to our community."))
-
-    # Host analysis — lane-specific framing to add depth
-    analysis = LANE_ANALYSIS_LINES.get(lane)
-    if analysis:
-        parts.append("\n" + analysis)
 
     if source:
         parts.append(
-            f"\nThat reporting comes from {source}... link's in the description, "
-            "go show them some love.\n"
+            f"\nThat reporting comes from {source}. The link is in the description.\n"
         )
 
     return "\n".join(parts)
@@ -460,6 +425,23 @@ def build_roundup_script(
             "visual_hint": "Hero image with Ken Burns motion; no burned narration captions",
         })
 
+        # Useful unattended context without pretending to be Mel's opinion.
+        # A written host take can replace this entire section later.
+        context_category, context_line = editorial_context(story)
+        sections.append({
+            "id": f"ch{i}_context",
+            "narration": context_line,
+            "duration_seconds": _dur_from_text(context_line),
+            "story_rank": i,
+            "story_url": story.get("url", ""),
+            "story_source": story.get("source", ""),
+            "lane": lane,
+            "take_slot": True,
+            "take_source": "deterministic_context",
+            "context_category": context_category,
+            "visual_hint": "Story image with a concise what-to-watch-next callout",
+        })
+
         # Transition between stories (skip after last)
         if i < len(items):
             trans_line = TRANSITION_LINES[i % len(TRANSITION_LINES)].format(
@@ -534,6 +516,7 @@ def build_roundup_script(
         "metadata": {
             "generated_by": "creator-studio/studio/fish/long_roundup_script.py",
             "generation_mode": "deterministic_local",
+            "tone_profile": "warm_direct_story_first",
         },
     }
 

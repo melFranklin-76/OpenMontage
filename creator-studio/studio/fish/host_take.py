@@ -1,10 +1,9 @@
 """Host takes — the part of the show that isn't someone else's reporting.
 
-The script generators are deterministic, which is good for facts and bad for
-opinion. Every story in a lane currently ends with the *same* stock paragraph:
-`LANE_WHY_LINES` and `LANE_ANALYSIS_LINES` are four sentences each, reused on
-every story in that lane forever. Across a year of nightly output that is a
-few hundred videos drawing their entire viewpoint from eight paragraphs.
+The script generators are deterministic, which is good for facts but cannot
+produce Mel's opinion. Fresh scripts now include story-category-specific
+context in an explicit take slot; older scripts used the same lane paragraph
+repeatedly. Both are generated framing, not the host's point of view.
 
 That matters beyond taste. YouTube's reused-content policy asks whether a
 channel adds "significant original commentary" to material it did not produce,
@@ -15,8 +14,8 @@ narration fixes *who made this*; only a real take fixes *why it exists*.
 
 So the take comes from the host, not a template. The pipeline writes the facts
 and a prompt; the host writes two or three sentences per story; `apply_takes`
-substitutes those in place of the stock lines. `find_canned` reports whatever
-is still boilerplate so a script can be stopped before it ships.
+substitutes those into the take slot. `find_canned` reports whatever generated
+context remains so a script can be stopped before it ships.
 
 This deliberately does not generate takes automatically. An LLM take would be
 story-specific but still not the creator's perspective, which is the exact
@@ -79,7 +78,7 @@ def _section_rank(script: dict, section: dict) -> int | None:
 # ── detecting boilerplate ────────────────────────────────────────────────────
 
 def find_canned(script: dict) -> list[dict]:
-    """Sections still carrying a stock editorial line.
+    """Sections still carrying generated editorial context.
 
     Returns [{section, rank, origin}, ...] — empty means every viewpoint in
     this script came from the host.
@@ -88,6 +87,16 @@ def find_canned(script: dict) -> list[dict]:
     found: list[dict] = []
     for section in script.get("sections", []):
         narration = section.get("narration") or ""
+        if section.get("take_slot") and section.get("take_source") != "host":
+            found.append({
+                "section": section.get("id", "?"),
+                "rank": _section_rank(script, section),
+                "origin": (
+                    "editorial_context"
+                    f"[{section.get('context_category', 'default')!r}]"
+                ),
+            })
+            continue
         for phrase, origin in phrases.items():
             if phrase in narration:
                 found.append({
@@ -127,6 +136,10 @@ def apply_takes(script: dict, takes: dict[int, str]) -> dict:
         rank = _section_rank(updated, section)
         take = takes.get(rank) if rank is not None else None
         if not take:
+            continue
+        if section.get("take_slot"):
+            section["narration"] = take.strip()
+            section["take_source"] = "host"
             continue
         narration = section.get("narration") or ""
 
@@ -207,13 +220,31 @@ def write_take_prompts(
             lines.append(f"**What happened:** {summary}")
             lines.append("")
 
-        stock = next((p for p, origin in phrases.items()
-                      if origin.endswith(f"[{lane!r}]") and "WHY" in origin), None)
-        if stock:
-            lines.append("**Stock line your take replaces** — this is what "
-                         "every other story in this lane says, word for word:")
+        context_section = next(
+            (
+                section
+                for section in script.get("sections", [])
+                if _section_rank(script, section) == rank
+                and section.get("take_slot")
+            ),
+            None,
+        )
+        generated_context = (
+            context_section.get("narration", "") if context_section else ""
+        )
+        legacy_stock = next(
+            (
+                phrase
+                for phrase, origin in phrases.items()
+                if origin.endswith(f"[{lane!r}]") and "WHY" in origin
+            ),
+            None,
+        )
+        shown_context = generated_context or legacy_stock
+        if shown_context:
+            lines.append("**Generated context your take replaces:**")
             lines.append("")
-            lines.append(f"> {stock}")
+            lines.append(f"> {shown_context}")
             lines.append("")
 
         lines.append("### Your take")

@@ -29,6 +29,8 @@ LANE_HASHTAGS = {
     "trans": ["#trans", "#translivesmatter", "#transrights"],
 }
 
+# Legacy lines are retained so `host_take` can recognize and upgrade scripts
+# generated before story-specific context slots were introduced.
 LANE_WHY_LINES = {
     "gay": (
         "Because stories like this shape what everyday life looks like for gay "
@@ -49,12 +51,76 @@ LANE_WHY_LINES = {
     ),
 }
 
+# These angles provide useful context without pretending to be Mel's personal
+# opinion. They are selected from the story itself, not its LGBTQ lane, so ten
+# stories in one lane do not end with the same paragraph.
+EDITORIAL_ANGLES = {
+    "policy": (
+        "The headline is one decision. The real test is what changes in daily "
+        "life, who has to follow it, and what happens next."
+    ),
+    "safety": (
+        "This deserves more than a statistic. Keep the people affected, the "
+        "response they receive, and the help that follows at the center."
+    ),
+    "culture": (
+        "Representation matters when it changes who gets seen, hired, funded, "
+        "or remembered — not only who trends for a day."
+    ),
+    "community": (
+        "The important part is the work behind the headline: who organized it, "
+        "who benefits, and whether the support lasts after attention moves on."
+    ),
+    "default": (
+        "The headline tells us what happened. What matters next is the practical "
+        "effect on the people at the center of the story."
+    ),
+}
+
+_ANGLE_TERMS = {
+    "policy": {
+        "ban", "bill", "court", "election", "executive order", "law", "legal",
+        "policy", "ruling", "school board", "vote",
+    },
+    "safety": {
+        "attack", "crime", "health", "hate", "hospital", "killed", "murder",
+        "safety", "shooting", "violence",
+    },
+    "culture": {
+        "actor", "artist", "award", "book", "film", "music", "show", "sports",
+        "television", "theater",
+    },
+    "community": {
+        "center", "community", "fundraiser", "grant", "initiative", "nonprofit",
+        "organizer", "support", "volunteer",
+    },
+}
+
 
 def _truncate_words(text: str, max_words: int) -> str:
     words = text.split()
     if len(words) <= max_words:
         return text
     return " ".join(words[:max_words]).rstrip(".,;:") + "..."
+
+
+def editorial_context(story: dict) -> tuple[str, str]:
+    """Return a grounded context category and line for a story.
+
+    This is deliberately not labeled as the host's opinion. A real host take
+    can replace the generated section later through `host_take.apply_takes`.
+    """
+    haystack = " ".join(
+        [
+            story.get("title", ""),
+            story.get("summary", ""),
+            " ".join(story.get("matched_terms", [])),
+        ]
+    ).lower()
+    for category in ("policy", "safety", "culture", "community"):
+        if any(term in haystack for term in _ANGLE_TERMS[category]):
+            return category, EDITORIAL_ANGLES[category]
+    return "default", EDITORIAL_ANGLES["default"]
 
 
 def build_reel_script(handoff: dict) -> dict:
@@ -67,12 +133,13 @@ def build_reel_script(handoff: dict) -> dict:
     url = story.get("url", "")
 
     story_line = _truncate_words(summary or title, 40)
-    why_line = LANE_WHY_LINES.get(lane, "This story matters to our community.")
+    context_category, context_line = editorial_context(story)
+    spoken_title = title.rstrip(".")
 
     sections = [
         {
             "id": "hook",
-            "narration": f"What's the LGBT, Fish? Today: {title}.",
+            "narration": f"{spoken_title}. Here is what happened.",
             "duration_seconds": 6,
             "visual_hint": "Show branding, bold headline card with story title",
         },
@@ -84,15 +151,18 @@ def build_reel_script(handoff: dict) -> dict:
         },
         {
             "id": "why_it_matters",
-            "narration": why_line,
+            "narration": context_line,
             "duration_seconds": 12,
+            "take_slot": True,
+            "take_source": "deterministic_context",
+            "context_category": context_category,
             "visual_hint": "Lane-colored emphasis card, community imagery",
         },
         {
             "id": "cta",
             "narration": (
-                f"Full story from {source} — link in bio... GHOULS. "
-                "Follow for the LGBT news that actually matters. Okay bye!"
+                f"Reporting comes from {source}. The link is in the description. "
+                "Follow for tomorrow's queer news roundup."
             ),
             "duration_seconds": 8,
             "visual_hint": "Source attribution card, follow prompt",
@@ -117,6 +187,7 @@ def build_reel_script(handoff: dict) -> dict:
         "metadata": {
             "generated_by": "creator-studio/studio/fish/reel_script.py",
             "generation_mode": "deterministic_local",
+            "tone_profile": "warm_direct_story_first",
             "handoff_date": handoff.get("handoff_date", ""),
             "digest_date": handoff.get("digest_date", ""),
         },

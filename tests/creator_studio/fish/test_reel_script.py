@@ -54,6 +54,41 @@ def test_narration_grounded_in_story() -> None:
     assert script["source_attribution"]["url"] == "https://example.com/1"
 
 
+def test_editorial_context_uses_story_category_not_identity_lane() -> None:
+    script = build_reel_script(HANDOFF)
+    context = script["sections"][2]
+
+    # "safety initiative" comes from this story; merely being in the trans
+    # lane must not trigger the same generic paragraph as every trans story.
+    assert context["context_category"] == "safety"
+    assert context["take_slot"] is True
+    assert context["take_source"] == "deterministic_context"
+    assert "more than a statistic" in context["narration"]
+
+
+def test_policy_story_gets_policy_context() -> None:
+    handoff = dict(
+        HANDOFF,
+        story=dict(
+            HANDOFF["story"],
+            title="School board votes to reverse library ban",
+            summary="The policy changes after a seven to two vote.",
+        ),
+    )
+    script = build_reel_script(handoff)
+    context = script["sections"][2]
+    assert context["context_category"] == "policy"
+    assert "one decision" in context["narration"]
+
+
+def test_script_uses_warm_direct_tone_without_borrowed_catchphrases() -> None:
+    script = build_reel_script(HANDOFF)
+    narration = " ".join(section["narration"] for section in script["sections"])
+    for borrowed_term in ("GHOULS", "QUEEN", "BRICK", "here's the T"):
+        assert borrowed_term not in narration
+    assert script["metadata"]["tone_profile"] == "warm_direct_story_first"
+
+
 def test_lane_hashtags_and_caption() -> None:
     script = build_reel_script(HANDOFF)
     assert "#trans" in script["hashtags"]

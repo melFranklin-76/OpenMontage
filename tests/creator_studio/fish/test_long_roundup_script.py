@@ -41,12 +41,13 @@ def test_has_cold_open_intro_outro():
     assert ids[-1] == "outro"
 
 
-def test_ten_stories_produce_title_and_body_each():
+def test_ten_stories_produce_title_body_and_context_each():
     script = _build()
     ids = [s["id"] for s in script["sections"]]
     for i in range(1, 11):
         assert f"ch{i}_title" in ids
         assert f"ch{i}_body" in ids
+        assert f"ch{i}_context" in ids
 
 
 def test_chapter_timestamps_monotonic_and_start_near_zero():
@@ -129,20 +130,25 @@ def test_extract_key_sentences_drops_site_template_boilerplate():
     assert any("council" in s.lower() for s in picked)
 
 
-def test_address_terms_rotate_deterministically():
-    assert lrs._address(0) == "GHOULS"
-    assert lrs._address(4) == "GHOULS"      # wraps
-    assert set(lrs.ADDRESS_TERMS) == {"GHOULS", "FISH", "QUEEN", "BRICK"}
+def test_automated_script_does_not_borrow_creator_catchphrases():
+    script = _build()
+    narration = " ".join(section["narration"] for section in script["sections"])
+    for borrowed_term in ("GHOULS", "QUEEN", "BRICK", "here's the T"):
+        assert borrowed_term not in narration
 
 
-def test_story_bodies_serve_the_T_not_the_rundown():
+def test_story_bodies_are_factual_and_context_is_replaceable():
     script = _build()
     bodies = [s for s in script["sections"] if s["id"].endswith("_body")]
     joined = " ".join(s["narration"] for s in bodies)
-    assert "here's the T" in joined
-    assert "here's the rundown" not in joined
-    # every body lands one of the address terms
-    assert any(term in joined for term in lrs.ADDRESS_TERMS)
+    assert "Here is what we know" in joined
+    assert "details the source has not confirmed" in joined
+
+    contexts = [s for s in script["sections"] if s["id"].endswith("_context")]
+    assert len(contexts) == 10
+    assert all(section["take_slot"] for section in contexts)
+    assert all(section["take_source"] == "deterministic_context"
+               for section in contexts)
 
 
 def test_extract_key_sentences_strips_urls():
