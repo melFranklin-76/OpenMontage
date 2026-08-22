@@ -101,6 +101,16 @@ jobs:
           restore-keys: |
             fish-creator-watch-state-
 
+      # Used-story memory: last night's top 10 stay off the show for 14 days
+      # so a headline that sits in RSS for a week cannot be the show all week.
+      - name: Restore used-story memory
+        uses: actions/cache@v4
+        with:
+          path: creator-studio/out/fish/used_stories.json
+          key: fish-used-stories-${{ github.run_id }}
+          restore-keys: |
+            fish-used-stories-
+
       - name: Run live daily digest
         run: |
           python -m studio.fish.daily_digest \
@@ -108,6 +118,7 @@ jobs:
             --social \
             --creator-watch \
             --creator-watch-state creator-studio/out/fish/creator_watch_state.json \
+            --used-state creator-studio/out/fish/used_stories.json \
             --output fish-digest-$(date -u +%Y-%m-%d).json
 
       - name: Show today's top stories

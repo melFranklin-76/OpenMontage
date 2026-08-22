@@ -4,16 +4,30 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .filter import evaluate_story
 from .intake import fetch_live_stories
 from .ranker import score_story
 from .social_research import fetch_social_stories
+from .story_memory import (
+    DEFAULT_STATE_PATH as USED_STATE_PATH,
+    RECORD_COUNT,
+    apply_nightly_gates,
+    load_state,
+    record_used,
+    save_state,
+    sort_stories,
+)
 
 
-def build_daily_candidates(items: list[dict[str, str]]) -> dict:
+def build_daily_candidates(
+    items: list[dict[str, str]],
+    *,
+    now: datetime | None = None,
+    used_state: dict | None = None,
+) -> dict:
     candidates = []
 
     for item in items:
@@ -39,13 +53,20 @@ def build_daily_candidates(items: list[dict[str, str]]) -> dict:
             }
         )
 
-    candidates.sort(key=lambda row: row["relevance_score"], reverse=True)
+    current = now or datetime.now(timezone.utc)
+    gated, selection = apply_nightly_gates(
+        candidates,
+        now=current,
+        today=current.date(),
+        used_state=used_state,
+    )
 
     return {
         "show": "What's the LGBT, Fish?",
-        "date": date.today().isoformat(),
+        "date": current.date().isoformat(),
         "scope": ["lesbian", "gay", "bisexual", "trans"],
-        "items": candidates,
+        "selection": selection,
+        "items": gated,
     }
 
 
@@ -92,6 +113,20 @@ def main() -> int:
              "channel that posts ~5x/week still counts on the nights between "
              "uploads",
     )
+    parser.add_argument(
+        "--used-state",
+        default=None,
+        help="Where last night's roundup stories are remembered so the same "
+             "headlines cannot win again while they are still in the feeds "
+             f"(default live path: {USED_STATE_PATH})",
+    )
+    parser.add_argument(
+        "--record-used",
+        type=int,
+        default=RECORD_COUNT,
+        help="How many of tonight's top stories to remember for later nights. "
+             "0 skips recording (useful in tests).",
+    )
     args = parser.parse_args()
 
     if args.social_only:
@@ -105,19 +140,36 @@ def main() -> int:
         if args.social:
             items = items + fetch_social_stories(topic=args.social_topic)
 
-    digest = build_daily_candidates(items)
+    used_path = Path(args.used_state) if args.used_state else None
+    used_state = load_state(used_path) if used_path else {"version": 1, "stories": []}
+    digest = build_daily_candidates(items, used_state=used_state)
 
     if args.creator_watch:
         from .creator_watch import boost_candidates, creator_topic_signals
         state_path = (Path(args.creator_watch_state)
                       if args.creator_watch_state else None)
         digest = boost_candidates(digest, creator_topic_signals(state_path))
+        digest["items"] = sort_stories(digest.get("items", []))
+
+    if used_path is not None and args.record_used > 0:
+        used_state = record_used(
+            used_state,
+            digest.get("items", []),
+            limit=args.record_used,
+        )
+        save_state(used_path, used_state)
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(digest, indent=2) + "\n")
 
-    print(f"Wrote {len(digest['items'])} candidates to {output_path}")
+    selection = digest.get("selection") or {}
+    print(
+        f"Wrote {len(digest['items'])} candidates to {output_path}"
+        f" (dropped stale={selection.get('dropped_stale', 0)}"
+        f" used={selection.get('dropped_used', 0)}"
+        f" duplicate={selection.get('dropped_duplicate', 0)})"
+    )
     return 0
 
 
