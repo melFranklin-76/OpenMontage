@@ -81,6 +81,30 @@ def test_reel_take_replaces_the_whole_stock_section():
     assert ht.find_canned(updated) == []
 
 
+def test_take_replaces_generated_context_slot():
+    script = {
+        "digest_rank": 1,
+        "sections": [
+            {"id": "story", "narration": "The council voted seven to two."},
+            {
+                "id": "why_it_matters",
+                "narration": "The headline is one decision.",
+                "take_slot": True,
+                "take_source": "deterministic_context",
+                "context_category": "policy",
+            },
+        ],
+    }
+    canned = ht.find_canned(script)
+    assert canned[0]["origin"] == "editorial_context['policy']"
+
+    updated = ht.apply_takes(script, {1: A_REAL_TAKE})
+    context = updated["sections"][1]
+    assert context["narration"] == A_REAL_TAKE
+    assert context["take_source"] == "host"
+    assert ht.find_canned(updated) == []
+
+
 def test_roundup_take_replaces_stock_text_embedded_mid_paragraph():
     """The roundup splices its stock lines into the story body rather than
     giving them their own section, so substitution has to be by phrase."""
