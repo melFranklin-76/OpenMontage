@@ -42,6 +42,7 @@ from pathlib import Path
 
 from .broll import _STOPWORDS
 from .filter import ACCEPT_TERMS
+from .story_memory import sort_stories
 
 # Channels the show watches. Keys are display names for the report artifact.
 # TS Madison runs two separate channels and they carry different material:
@@ -571,7 +572,7 @@ def boost_candidates(digest: dict, signals: dict[str, dict]) -> dict:
                 "boost": boost,
             }
 
-    digest["items"].sort(key=lambda row: row["relevance_score"], reverse=True)
+    digest["items"] = sort_stories(digest["items"])
     digest["creator_watch"] = {
         name: {"video_id": s["video_id"], "title": s["title"],
                # Only surviving topics could move ranking — recording the raw

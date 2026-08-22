@@ -46,8 +46,17 @@ def test_main_live_mode_fetches_filters_and_writes(monkeypatch, tmp_path) -> Non
 
     monkeypatch.setattr(daily_digest, "fetch_live_stories", fake_fetch)
     output_path = tmp_path / "daily.json"
+    used_path = tmp_path / "used.json"
     monkeypatch.setattr(
-        "sys.argv", ["daily_digest", "--live", "--output", str(output_path)]
+        "sys.argv",
+        [
+            "daily_digest",
+            "--live",
+            "--output",
+            str(output_path),
+            "--used-state",
+            str(used_path),
+        ],
     )
 
     assert daily_digest.main() == 0
@@ -57,3 +66,5 @@ def test_main_live_mode_fetches_filters_and_writes(monkeypatch, tmp_path) -> Non
     assert len(data["items"]) == 1
     assert data["items"][0]["matched_lane"] == "gay"
     assert data["items"][0]["source"] == "Live Feed"
+    used = json.loads(used_path.read_text())
+    assert used["stories"][0]["url"] == "https://example.com/live"
