@@ -72,6 +72,20 @@ WATCHED_CHANNELS = {
 # topics keep steering the digest.
 MAX_VIDEO_AGE_HOURS = 120
 
+# How long a mined episode keeps contributing once it has aired. Deliberately
+# longer than MAX_VIDEO_AGE_HOURS, because the two answer different questions:
+# that one is "is this upload new enough to read tonight?", this one is "is this
+# channel still current?". Discovery only has to catch an upload shortly after
+# it lands, since we run nightly — but memory has to span the channel's quiet
+# stretch, or a show that isn't daily goes silent between airings.
+#
+# Measured worst gaps between non-Short uploads (Sept 2026): Outlaws 168h,
+# Armon Wiggins 144h, Amir Odom 121h, Funky Dineva 120h. Four of six exceeded
+# the old 120h expiry, so they were losing their episode before the next one
+# aired. 14 days clears the observed worst case with headroom while still
+# dropping a channel that has genuinely stopped posting.
+MAX_REMEMBERED_AGE_HOURS = 336
+
 # How far back through a channel's recent uploads to look for the episode.
 MAX_VIDEOS_PER_CHANNEL = 6
 
@@ -88,12 +102,20 @@ MIN_TRANSCRIPT_WORDS = 400
 # Uploads that say they're Shorts can be skipped without spending a fetch.
 _SHORTS_TITLE_RE = re.compile(r"#shorts?\b", re.IGNORECASE)
 
-# Length proves an upload is long-form, not that it is commentary on our beat.
-# A live run accepted 2,388 words of holiday vlog from a watched channel and
-# its filler ("sandwich", "camera", "only") lifted 19% of the digest. So an
-# episode also has to touch the show's editorial vocabulary before its topics
-# may move our ranking. Require recurrence: one passing mention across half an
-# hour is not an episode about the beat. That vlog scored zero.
+# Reported per episode, no longer a gate. It used to be one: a live run accepted
+# 2,388 words of holiday vlog whose filler ("sandwich", "camera", "only") lifted
+# 19% of the digest, so an episode had to use the show's own vocabulary before
+# its topics could move our ranking. But that test asks the wrong question. The
+# premise of watching these channels is *who* is talking, not which words they
+# use: they are Black LGBTQ commentators, so whatever they are covering already
+# is the conversation this show is part of, whether or not the word "gay"
+# appears. Requiring the vocabulary silently threw away every episode about a
+# court case, an election, or a celebrity — which is most of what they post.
+#
+# What still protects against that vlog is topic-agnostic and downstream:
+# MIN_MATCHED_TOPICS needs two distinct overlaps before anything moves, and
+# MAX_TOPIC_DIGEST_SHARE drops any topic common enough across the digest to be
+# vocabulary rather than signal. Filler loses there without a subject test.
 MIN_EDITORIAL_MENTIONS = 3
 
 # Where mined topics are remembered between nightly runs, so an episode is
@@ -143,11 +165,9 @@ API_KEY_ENV = "YOUTUBE_API_KEY"
 # The Data API cannot hand us these channels' captions — Google only allows
 # caption download for videos you own — and yt-dlp is bot-walled on CI. So on CI
 # the only readable text is the episode's own title and description. That is far
-# thinner than half an hour of talk, so it gets its own thresholds: a
-# description is written deliberately, so one on-beat mention counts where
-# rambling captions need three.
+# thinner than half an hour of talk, so it gets its own length floor: enough
+# prose to mine topics from, which a one-line Short blurb is not.
 MIN_DESCRIPTION_WORDS = 20
-MIN_DESCRIPTION_MENTIONS = 1
 
 # Talk-show transcripts are conversational; the b-roll stopword list alone
 # leaves too much filler ("really", "gonna", "people"). Extend it.
@@ -415,22 +435,25 @@ def save_state(state: dict[str, dict], path: Path | None = None) -> None:
 
 
 def prune_state(state: dict[str, dict], now: datetime | None = None) -> dict[str, dict]:
-    """Drop remembered episodes that have aged past the freshness window.
+    """Drop remembered episodes from channels that have gone quiet for good.
 
-    Without this a channel that stops posting would keep lifting stories off a
-    week-old episode forever. Entries with an unparseable timestamp are dropped
-    too — better to re-read the channel than to trust a date we can't check.
+    The horizon is MAX_REMEMBERED_AGE_HOURS, not the discovery window: a show
+    that airs weekly must keep contributing on the nights between airings, and
+    only a channel that has actually stopped posting should fall out. Entries
+    with an unparseable timestamp are dropped too — better to re-read the channel
+    than to trust a date we can't check.
     """
     now = now or datetime.now(timezone.utc)
     kept: dict[str, dict] = {}
     for cid, entry in state.items():
         try:
-            when = datetime.fromisoformat(entry["published"])
+            when = datetime.fromisoformat(
+                str(entry["published"]).replace("Z", "+00:00"))
         except (KeyError, TypeError, ValueError):
             continue
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
-        if now - when <= timedelta(hours=MAX_VIDEO_AGE_HOURS):
+        if now - when <= timedelta(hours=MAX_REMEMBERED_AGE_HOURS):
             kept[cid] = entry
     return kept
 
@@ -449,12 +472,16 @@ def newest_candidate_id(videos: list[dict]) -> str | None:
 
 
 def editorial_mentions(transcript: str, title: str = "") -> int:
-    """How often an episode touches the show's beat.
+    """How often an episode touches the show's beat. Reported, not enforced.
 
     Reuses the digest's own ACCEPT_TERMS so "what this show covers" has one
     definition. Counts occurrences rather than using `classify_lane`, whose
     substring test is built for headlines — across half an hour of captions a
     single stray "gay" would classify a vacation vlog as on-beat.
+
+    Logged per episode so the nightly output still shows whether the room was on
+    queer news specifically. See MIN_EDITORIAL_MENTIONS for why it stopped being
+    a gate.
     """
     haystack = f"{title} {transcript}".lower()
     return sum(haystack.count(term) for term in ACCEPT_TERMS)
@@ -498,16 +525,11 @@ def pick_episode(channel_id: str, label: str = "",
 
         words = len(transcript.split())
         if words >= MIN_TRANSCRIPT_WORDS:
-            # Captions came back fine, so yt-dlp is healthy regardless of
-            # whether this upload turns out to be on-beat.
             budget.record(usable=True)
-            mentions = editorial_mentions(transcript, video["title"])
-            if mentions < MIN_EDITORIAL_MENTIONS:
-                print(f"[creator_watch] {who}: {video['title']!r} is off-beat "
-                      f"({mentions} editorial mentions, need "
-                      f"{MIN_EDITORIAL_MENTIONS}) — looking further back",
-                      file=sys.stderr)
-                continue
+            print(f"[creator_watch] {who}: {video['title']!r} "
+                  f"({words} caption words, "
+                  f"{editorial_mentions(transcript, video['title'])} on-beat "
+                  f"mentions)", file=sys.stderr)
             return {**video, "transcript": transcript}
 
         budget.record(usable=False)
@@ -522,16 +544,10 @@ def pick_episode(channel_id: str, label: str = "",
                   file=sys.stderr)
             continue
 
-        mentions = editorial_mentions(blurb, video["title"])
-        if mentions < MIN_DESCRIPTION_MENTIONS:
-            print(f"[creator_watch] {who}: {video['title']!r} description is "
-                  f"off-beat ({mentions} editorial mentions, need "
-                  f"{MIN_DESCRIPTION_MENTIONS}) — looking further back",
-                  file=sys.stderr)
-            continue
-
         print(f"[creator_watch] {who}: no captions for {video['title']!r} — "
-              f"reading its description instead", file=sys.stderr)
+              f"reading its description instead "
+              f"({editorial_mentions(blurb, video['title'])} on-beat mentions)",
+              file=sys.stderr)
         return {**video, "transcript": ""}
 
     return None
@@ -556,7 +572,14 @@ _DESC_NOISE = {
     "disclaimer", "usage", "purposes", "educational", "opinion", "opinions",
     "entertainment", "advice", "podcast", "episode", "stream", "streaming",
     "livestream", "footage", "welcome", "hosted", "presented",
+    # "video" is already a chat stopword; descriptions use the plural.
+    "videos", "perks",
 }
+# Residue like "iheartpodcasts" or a sponsor handle survives this list, and that
+# is fine — it appears once, in one channel, and matches no headline. Genuinely
+# ambiguous words ("media", "access") are left in too: MAX_TOPIC_DIGEST_SHARE
+# drops them when they run through the digest and keeps them when they don't,
+# which is a better test than guessing here.
 
 
 def _clean_description(description: str) -> str:
@@ -618,11 +641,11 @@ def extract_topics(transcript: str, video_title: str = "", top_n: int = 25,
 def creator_topic_signals(state_path: Path | None = None) -> dict[str, dict]:
     """Topics from each watched channel's current episode. Fails soft per channel.
 
-    An episode is mined once and then reused for as long as it stays inside the
-    freshness window, so a channel that posts ~5 nights a week keeps
-    contributing on the nights between its uploads. Reuse also means no caption
-    fetch, which keeps yt-dlp exposure (and its CI bot-walling) to the nights
-    something genuinely new appeared.
+    An episode is mined once and then reused until the channel posts something
+    newer, so a show that isn't daily keeps contributing on the nights between
+    airings — up to MAX_REMEMBERED_AGE_HOURS, after which the channel counts as
+    dormant. Reuse also means no fetch, which keeps yt-dlp exposure (and its CI
+    bot-walling) to the nights something genuinely new appeared.
     """
     signals: dict[str, dict] = {}
     state = load_state(state_path)
