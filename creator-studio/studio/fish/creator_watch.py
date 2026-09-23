@@ -16,10 +16,13 @@ Copyright posture: we never reuse their footage, audio, or words. Captions are
 fetched only to *read* what topics were discussed, the same as a human watching
 the episode and taking notes. Nothing from the transcript enters our scripts.
 
-Free/local per project preference: channel discovery uses YouTube's public RSS
-feed (no API key), captions come via yt-dlp, topic extraction is deterministic
-keyword counting. Every network step fails soft — no signal just means no
-boost, never a broken digest.
+Channel discovery prefers the YouTube Data API (`YOUTUBE_API_KEY`) and falls
+back to the public RSS feed when no key is set. The key is not a nicety: YouTube
+404s the RSS feed for datacenter IPs, so on CI the API is the only path that
+works. Captions come via yt-dlp where it is allowed, and where it is not the
+episode's own description stands in. Topic extraction is deterministic keyword
+counting. Every network step fails soft — no signal just means no boost, never
+a broken digest.
 
 Usage (standalone report):
 
@@ -33,6 +36,7 @@ from __future__ import annotations
 import argparse
 import html as _html
 import json
+import os
 import re
 import subprocess
 import sys
@@ -124,6 +128,27 @@ MIN_DIGEST_FOR_TOPIC_FILTER = 20
 
 RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
 
+# YouTube serves that RSS feed to browsers but answers 404 for datacenter IPs,
+# which is every CI runner. A live run had all six channels fail this way, so
+# the whole feature was silently dead in production while working fine locally.
+# The Data API answers from anywhere, so prefer it whenever a key is configured
+# and keep RSS as the zero-config local path. Listing one channel's uploads
+# costs 1 unit against a 10,000/day free quota.
+API_UPLOADS_URL = (
+    "https://www.googleapis.com/youtube/v3/playlistItems"
+    "?part=snippet&maxResults={limit}&playlistId={playlist}&key={key}"
+)
+API_KEY_ENV = "YOUTUBE_API_KEY"
+
+# The Data API cannot hand us these channels' captions — Google only allows
+# caption download for videos you own — and yt-dlp is bot-walled on CI. So on CI
+# the only readable text is the episode's own title and description. That is far
+# thinner than half an hour of talk, so it gets its own thresholds: a
+# description is written deliberately, so one on-beat mention counts where
+# rambling captions need three.
+MIN_DESCRIPTION_WORDS = 20
+MIN_DESCRIPTION_MENTIONS = 1
+
 # Talk-show transcripts are conversational; the b-roll stopword list alone
 # leaves too much filler ("really", "gonna", "people"). Extend it.
 _CHAT_STOPWORDS = _STOPWORDS | {
@@ -160,13 +185,81 @@ _CHAT_STOPWORDS = _STOPWORDS | {
 
 # ── channel feed ─────────────────────────────────────────────────────────────
 
-def recent_videos(channel_id: str, timeout: int = 15,
-                  limit: int = MAX_VIDEOS_PER_CHANNEL) -> list[dict]:
-    """Recent uploads for a channel via its public RSS feed, newest first.
+def uploads_playlist_id(channel_id: str) -> str:
+    """A channel's uploads playlist id: the channel id with `UC` swapped for `UU`.
 
-    Returns up to `limit` entries published within MAX_VIDEO_AGE_HOURS, each
-    {"video_id", "title", "published"}. Empty list if the feed is unreachable
-    or nothing is recent enough.
+    Saves a `channels.list` round trip (and its quota unit) per channel.
+    """
+    return f"UU{channel_id[2:]}" if channel_id.startswith("UC") else channel_id
+
+
+def _within_window(videos: list[dict], limit: int,
+                   now: datetime | None = None) -> list[dict]:
+    """Trim a newest-first upload list to the freshness window.
+
+    Shared by both feed paths so the API and RSS can never disagree about what
+    counts as current.
+    """
+    now = now or datetime.now(timezone.utc)
+    kept: list[dict] = []
+    for video in videos:
+        try:
+            when = datetime.fromisoformat(
+                str(video.get("published", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        # Newest-first, so the first entry outside the window means every
+        # remaining one is older still.
+        if now - when > timedelta(hours=MAX_VIDEO_AGE_HOURS):
+            break
+        kept.append(video)
+        if len(kept) >= limit:
+            break
+    return kept
+
+
+def _videos_via_api(channel_id: str, key: str, timeout: int,
+                    limit: int) -> list[dict] | None:
+    """Recent uploads via the YouTube Data API, newest first.
+
+    Returns None — not [] — when the call fails, so the caller can tell "API
+    unusable, try RSS" apart from "API worked and this channel is quiet".
+    """
+    url = API_UPLOADS_URL.format(
+        limit=limit, playlist=uploads_playlist_id(channel_id), key=key)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "fish-pipeline/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[creator_watch] Data API failed for {channel_id}: {exc}",
+              file=sys.stderr)
+        return None
+
+    videos: list[dict] = []
+    for item in payload.get("items", []):
+        snippet = item.get("snippet") or {}
+        vid = (snippet.get("resourceId") or {}).get("videoId")
+        published = snippet.get("publishedAt")
+        if not (vid and published):
+            continue
+        videos.append({
+            "video_id": vid,
+            "title": snippet.get("title", ""),
+            "published": published,
+            # The reason the API path is worth having beyond reachability:
+            # captions are unavailable for channels we don't own, so the
+            # description is the only prose we get on CI.
+            "description": snippet.get("description", ""),
+        })
+    return videos
+
+
+def _videos_via_rss(channel_id: str, timeout: int) -> list[dict]:
+    """Recent uploads via the channel's public RSS feed, newest first.
+
+    No API key needed, which is why it stays as the local path — but YouTube
+    404s this endpoint for datacenter IPs, so it cannot be relied on in CI.
     """
     url = RSS_URL.format(cid=channel_id)
     try:
@@ -178,33 +271,43 @@ def recent_videos(channel_id: str, timeout: int = 15,
               file=sys.stderr)
         return []
 
-    now = datetime.now(timezone.utc)
     videos: list[dict] = []
     for entry in re.finditer(r"<entry>(.*?)</entry>", xml, re.DOTALL):
         block = entry.group(1)
         vid = re.search(r"<yt:videoId>([^<]+)</yt:videoId>", block)
         title = re.search(r"<title>([^<]*)</title>", block)
         published = re.search(r"<published>([^<]+)</published>", block)
+        blurb = re.search(r"<media:description>(.*?)</media:description>",
+                          block, re.DOTALL)
         if not (vid and published):
             continue
-        try:
-            when = datetime.fromisoformat(published.group(1))
-        except ValueError:
-            continue
-        # The feed is ordered newest-first, so the first entry outside the
-        # window means every remaining one is older still.
-        if now - when > timedelta(hours=MAX_VIDEO_AGE_HOURS):
-            break
         videos.append({
             "video_id": vid.group(1),
             # Titles carry entities and feed extract_topics, so unescape them
             # the same way caption text is unescaped.
             "title": _html.unescape(title.group(1)) if title else "",
             "published": published.group(1),
+            "description": _html.unescape(blurb.group(1)) if blurb else "",
         })
-        if len(videos) >= limit:
-            break
+    return videos
 
+
+def recent_videos(channel_id: str, timeout: int = 15,
+                  limit: int = MAX_VIDEOS_PER_CHANNEL) -> list[dict]:
+    """Recent uploads for a channel, newest first.
+
+    Prefers the Data API when YOUTUBE_API_KEY is set — the only path that works
+    from CI — and falls back to the public RSS feed otherwise. Returns up to
+    `limit` entries published within MAX_VIDEO_AGE_HOURS, each {"video_id",
+    "title", "published", "description"}. Empty list if neither source has
+    anything current.
+    """
+    key = os.environ.get(API_KEY_ENV, "").strip()
+    videos = _videos_via_api(channel_id, key, timeout, limit) if key else None
+    if videos is None:
+        videos = _videos_via_rss(channel_id, timeout)
+
+    videos = _within_window(videos, limit)
     if not videos:
         print(f"[creator_watch] no uploads for {channel_id} within "
               f"{MAX_VIDEO_AGE_HOURS}h — skipping", file=sys.stderr)
@@ -383,48 +486,105 @@ def pick_episode(channel_id: str, label: str = "",
             print(f"[creator_watch] {who}: no episode in the newest "
                   f"{MAX_TRANSCRIPT_ATTEMPTS} non-Short uploads", file=sys.stderr)
             break
-        if budget.exhausted:
-            print(f"[creator_watch] {who}: skipping — yt-dlp returned nothing "
-                  f"{budget.consecutive_failures}x in a row, assuming it is "
-                  f"blocked rather than that every upload lacks captions",
-                  file=sys.stderr)
-            break
-
         attempts += 1
-        transcript = fetch_transcript(video["video_id"])
+
+        # Once yt-dlp has come back empty enough times it is blocked, not
+        # unlucky. Stop paying its two-minute timeout, but keep walking: the
+        # description path below needs no fetch and still yields topics.
+        if budget.exhausted:
+            transcript = ""
+        else:
+            transcript = fetch_transcript(video["video_id"])
+
         words = len(transcript.split())
-        if words < MIN_TRANSCRIPT_WORDS:
-            budget.record(usable=False)
+        if words >= MIN_TRANSCRIPT_WORDS:
+            # Captions came back fine, so yt-dlp is healthy regardless of
+            # whether this upload turns out to be on-beat.
+            budget.record(usable=True)
+            mentions = editorial_mentions(transcript, video["title"])
+            if mentions < MIN_EDITORIAL_MENTIONS:
+                print(f"[creator_watch] {who}: {video['title']!r} is off-beat "
+                      f"({mentions} editorial mentions, need "
+                      f"{MIN_EDITORIAL_MENTIONS}) — looking further back",
+                      file=sys.stderr)
+                continue
+            return {**video, "transcript": transcript}
+
+        budget.record(usable=False)
+
+        # No usable captions — the normal state on CI. Fall back to the prose
+        # the Data API does give us, which is the episode's own description.
+        blurb = _clean_description(video.get("description", ""))
+        if len(blurb.split()) < MIN_DESCRIPTION_WORDS:
             print(f"[creator_watch] {who}: {video['title']!r} has {words} "
-                  f"caption words (need {MIN_TRANSCRIPT_WORDS}) — not the "
-                  f"episode, looking further back", file=sys.stderr)
-            continue
-
-        # Captions came back fine, so yt-dlp is healthy regardless of whether
-        # this upload turns out to be on-beat.
-        budget.record(usable=True)
-
-        mentions = editorial_mentions(transcript, video["title"])
-        if mentions < MIN_EDITORIAL_MENTIONS:
-            print(f"[creator_watch] {who}: {video['title']!r} is off-beat "
-                  f"({mentions} editorial mentions, need "
-                  f"{MIN_EDITORIAL_MENTIONS}) — looking further back",
+                  f"caption words (need {MIN_TRANSCRIPT_WORDS}) and too thin a "
+                  f"description — not the episode, looking further back",
                   file=sys.stderr)
             continue
 
-        return {**video, "transcript": transcript}
+        mentions = editorial_mentions(blurb, video["title"])
+        if mentions < MIN_DESCRIPTION_MENTIONS:
+            print(f"[creator_watch] {who}: {video['title']!r} description is "
+                  f"off-beat ({mentions} editorial mentions, need "
+                  f"{MIN_DESCRIPTION_MENTIONS}) — looking further back",
+                  file=sys.stderr)
+            continue
+
+        print(f"[creator_watch] {who}: no captions for {video['title']!r} — "
+              f"reading its description instead", file=sys.stderr)
+        return {**video, "transcript": ""}
 
     return None
 
 
 # ── topics ───────────────────────────────────────────────────────────────────
 
-def extract_topics(transcript: str, video_title: str = "", top_n: int = 25) -> list[str]:
-    """Deterministic topic terms from a transcript + episode title.
+_DESC_LINK_RE = re.compile(r"https?://\S+|www\.\S+|\S+@\S+\.\S+")
 
-    Title words count regardless of frequency (creators put the subject in the
-    title); transcript words need to recur to register as a topic rather than
-    a passing mention.
+# Descriptions are half promo: link blocks, socials, merch, business email, fair
+# use boilerplate. None of that is a topic, and unlike caption filler it cannot
+# be filtered by recurrence, because a description says everything exactly once.
+_DESC_NOISE = {
+    "patreon", "cashapp", "paypal", "venmo", "merch", "merchandise",
+    "sponsor", "sponsored", "affiliate", "discount", "promo", "coupon",
+    "instagram", "twitter", "tiktok", "facebook", "threads", "snapchat",
+    "twitch", "onlyfans", "linktree", "https", "http",
+    "business", "inquiries", "inquiry", "booking", "bookings", "email",
+    "gmail", "contact", "follow", "following", "share", "likes",
+    "notification", "notifications", "membership", "member", "members",
+    "join", "donate", "donation", "support", "supporters", "copyright",
+    "disclaimer", "usage", "purposes", "educational", "opinion", "opinions",
+    "entertainment", "advice", "podcast", "episode", "stream", "streaming",
+    "livestream", "footage", "welcome", "hosted", "presented",
+}
+
+
+def _clean_description(description: str) -> str:
+    """Strip the promo scaffolding, leaving whatever prose is actually topical.
+
+    Drops any line carrying a URL or email, or opening with a hashtag/handle —
+    that is where descriptions keep their link trees, socials, and booking
+    contacts. Dropping the whole line matters: a domain like "example.com"
+    tokenizes into words that would otherwise read as topics.
+    """
+    lines = []
+    for raw in description.splitlines():
+        line = raw.strip()
+        if not line or _DESC_LINK_RE.search(line) or line.startswith(("#", "@")):
+            continue
+        lines.append(line)
+    return " ".join(lines)
+
+
+def extract_topics(transcript: str, video_title: str = "", top_n: int = 25,
+                   description: str = "") -> list[str]:
+    """Deterministic topic terms from an episode's title, captions, description.
+
+    The three sources are weighted by how deliberate they are. Title words count
+    regardless of frequency (creators put the subject in the title). Transcript
+    words must recur to register as a topic rather than a passing mention.
+    Description words sit between: written rather than spoken, so one mention is
+    meaningful — but promo-heavy, so it is cleaned and denoised first.
     """
     topics: dict[str, int] = {}
 
@@ -439,6 +599,13 @@ def extract_topics(transcript: str, video_title: str = "", top_n: int = 25) -> l
 
     for w in _tokens(video_title):
         topics[w] = topics.get(w, 0) + 5
+
+    # Weight 3 clears the recurrence threshold on a single mention, which is the
+    # point: when captions are blocked this is the only body text there is.
+    for w in _tokens(_clean_description(description)):
+        if w in _DESC_NOISE:
+            continue
+        topics[w] = topics.get(w, 0) + 3
 
     for w in _tokens(transcript):
         topics[w] = topics.get(w, 0) + 1
@@ -490,14 +657,17 @@ def creator_topic_signals(state_path: Path | None = None) -> dict[str, dict]:
                       file=sys.stderr)
             continue
 
-        topics = extract_topics(episode["transcript"], video_title=episode["title"])
+        topics = extract_topics(episode["transcript"],
+                                video_title=episode["title"],
+                                description=episode.get("description", ""))
         if not topics:
             print(f"[creator_watch] {name}: {episode['title']!r} yielded no "
                   f"topics", file=sys.stderr)
             continue
 
-        # Deliberately drop `transcript`: signals are written to the digest
-        # artifact, and their words must never be persisted alongside ours.
+        # Deliberately drop `transcript` and `description`: signals are written
+        # to the digest artifact, and their words must never be persisted
+        # alongside ours. Only the mined topic terms survive.
         entry = {
             "video_id": episode["video_id"],
             "title": episode["title"],
