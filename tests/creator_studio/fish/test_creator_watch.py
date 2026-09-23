@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+import pytest
+
 from studio.fish import creator_watch as cw
+
+
+@pytest.fixture(autouse=True)
+def _no_api_key(monkeypatch):
+    """Keep the default path deterministic regardless of the dev's own env.
+
+    A developer with YOUTUBE_API_KEY exported would otherwise silently route the
+    RSS tests through the API branch.
+    """
+    monkeypatch.delenv(cw.API_KEY_ENV, raising=False)
 
 
 VTT = """WEBVTT
@@ -202,6 +215,94 @@ def test_recent_videos_is_soft_on_unreachable_feeds():
         assert cw.recent_videos("CID") == []
 
 
+def test_rss_entries_carry_descriptions():
+    """The description is the fallback body text, so both feed paths supply it."""
+    xml = (f"<feed><entry><yt:videoId>v1</yt:videoId><title>Live</title>"
+           f"<published>{_iso(2)}</published>"
+           f"<media:description>Tonight we get into the school board vote."
+           f"</media:description></entry></feed>")
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse(xml)):
+        videos = cw.recent_videos("CID")
+    assert videos[0]["description"] == "Tonight we get into the school board vote."
+
+
+# ── Data API path ────────────────────────────────────────────────────────────
+
+def _api_payload(*entries) -> str:
+    """playlistItems response. Entries are (video_id, title, age_hours, blurb)."""
+    now = datetime.now(timezone.utc)
+    return json.dumps({"items": [
+        {"snippet": {
+            "title": title,
+            "description": blurb,
+            "publishedAt": (now - timedelta(hours=age)).isoformat()
+                           .replace("+00:00", "Z"),
+            "resourceId": {"videoId": vid},
+        }}
+        for vid, title, age, blurb in entries
+    ]})
+
+
+def test_uploads_playlist_id_swaps_the_channel_prefix():
+    # Saves a channels.list round trip per channel per night.
+    assert cw.uploads_playlist_id("UCl8dvxZaiUtttyDBgIujocw") == "UUl8dvxZaiUtttyDBgIujocw"
+    # Anything not shaped like a channel id is passed through untouched.
+    assert cw.uploads_playlist_id("PL123") == "PL123"
+
+
+def test_recent_videos_prefers_the_data_api_when_a_key_is_set(monkeypatch):
+    """YouTube 404s the RSS feed for datacenter IPs, so CI must use the API."""
+    monkeypatch.setenv(cw.API_KEY_ENV, "test-key")
+    payload = _api_payload(("v1", "Live episode", 2, "school board vote"))
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse(payload)), \
+         mock.patch.object(cw, "_videos_via_rss") as rss:
+        videos = cw.recent_videos("UCabc")
+    rss.assert_not_called()
+    assert [v["video_id"] for v in videos] == ["v1"]
+    assert videos[0]["description"] == "school board vote"
+
+
+def test_the_api_request_targets_the_uploads_playlist(monkeypatch):
+    monkeypatch.setenv(cw.API_KEY_ENV, "test-key")
+    with mock.patch("urllib.request.urlopen",
+                    return_value=_FakeResponse(_api_payload())) as urlopen:
+        cw.recent_videos("UCabc")
+    requested = urlopen.call_args.args[0].full_url
+    assert "playlistId=UUabc" in requested
+    assert "key=test-key" in requested
+
+
+def test_recent_videos_falls_back_to_rss_when_the_api_fails(monkeypatch):
+    """A bad key or exhausted quota must not cost the night's signal."""
+    monkeypatch.setenv(cw.API_KEY_ENV, "expired-key")
+    with mock.patch("urllib.request.urlopen", side_effect=OSError("403")), \
+         mock.patch.object(cw, "_videos_via_rss",
+                           return_value=[{"video_id": "v1", "title": "Live",
+                                          "published": _iso(2),
+                                          "description": ""}]) as rss:
+        videos = cw.recent_videos("UCabc")
+    rss.assert_called_once()
+    assert [v["video_id"] for v in videos] == ["v1"]
+
+
+def test_an_empty_api_result_is_not_treated_as_a_failure(monkeypatch):
+    """The channel is simply quiet — falling back to a 404ing feed adds nothing."""
+    monkeypatch.setenv(cw.API_KEY_ENV, "test-key")
+    with mock.patch("urllib.request.urlopen",
+                    return_value=_FakeResponse(_api_payload())), \
+         mock.patch.object(cw, "_videos_via_rss") as rss:
+        assert cw.recent_videos("UCabc") == []
+    rss.assert_not_called()
+
+
+def test_api_entries_outside_the_window_are_dropped(monkeypatch):
+    monkeypatch.setenv(cw.API_KEY_ENV, "test-key")
+    payload = _api_payload(("v1", "Recent", 2, ""), ("v2", "Stale", 500, ""))
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse(payload)):
+        videos = cw.recent_videos("UCabc")
+    assert [v["video_id"] for v in videos] == ["v1"]
+
+
 # ── episode selection ────────────────────────────────────────────────────────
 
 def _iso(age_hours: float) -> str:
@@ -242,43 +343,63 @@ def test_pick_episode_walks_past_shorts_and_thin_uploads():
     assert [call.args[0] for call in fetch.call_args_list] == ["c1", "e1"]
 
 
-def test_pick_episode_rejects_long_but_off_beat_uploads():
-    """Length proves long-form, not commentary.
+def test_pick_episode_takes_the_newest_real_episode_whatever_its_subject():
+    """These are Black LGBTQ commentators, so whatever they are covering is
+    already the conversation this show is part of — the word "gay" does not have
+    to appear. Requiring it threw away every episode about a court case, an
+    election, or a celebrity, which is most of what they post.
 
-    A live run accepted 2,388 words of holiday vlog from a watched channel;
-    its filler ("sandwich", "camera") then lifted 19% of the digest.
+    Filler is still handled, but downstream and topic-agnostically: see
+    MIN_MATCHED_TOPICS and MAX_TOPIC_DIGEST_SHARE.
     """
-    videos = _videos(("vlog", "In Antigua"), ("ep", "Pastor pushed out"))
+    videos = _videos(("crime", "What really happened to Nolan Wells"),
+                     ("older", "Pastor pushed out"))
     transcripts = {
-        "vlog": "word " * (cw.MIN_TRANSCRIPT_WORDS + 500),   # long, zero beat
-        "ep": _on_beat(cw.MIN_TRANSCRIPT_WORDS),
+        "crime": "word " * (cw.MIN_TRANSCRIPT_WORDS + 500),   # zero beat terms
+        "older": _on_beat(cw.MIN_TRANSCRIPT_WORDS),
     }
     with mock.patch.object(cw, "recent_videos", return_value=videos), \
          mock.patch.object(cw, "fetch_transcript",
                            side_effect=lambda vid: transcripts.get(vid, "")):
         episode = cw.pick_episode("CID", label="Chan")
-    assert episode["video_id"] == "ep"
+    # The true-crime episode is newest and is a real episode, so it wins even
+    # though the older one uses the show's vocabulary.
+    assert episode["video_id"] == "crime"
 
 
-def test_off_beat_upload_does_not_count_as_a_yt_dlp_failure():
-    """Captions arrived — yt-dlp is healthy, the video was just off-beat."""
+def test_captions_arriving_never_counts_as_a_yt_dlp_failure():
+    """Captions arrived, so yt-dlp is healthy — the budget must not tick up."""
     budget = cw._FetchBudget(max_consecutive_failures=2)
     with mock.patch.object(cw, "recent_videos",
-                           return_value=_videos(("vlog", "In Antigua"))), \
+                           return_value=_videos(("ep", "Nolan Wells latest"))), \
          mock.patch.object(cw, "fetch_transcript",
                            return_value="word " * (cw.MIN_TRANSCRIPT_WORDS + 10)):
-        assert cw.pick_episode("CID", budget=budget) is None
+        assert cw.pick_episode("CID", budget=budget) is not None
     assert budget.consecutive_failures == 0
 
 
 def test_editorial_mentions_counts_recurrence_not_presence():
+    """Still measured and logged per episode, just no longer a gate."""
     assert cw.editorial_mentions("a holiday in antigua with the girls") == 0
-    # One passing mention across an episode is not coverage.
-    assert cw.editorial_mentions("we went to a gay bar once") < cw.MIN_EDITORIAL_MENTIONS
+    assert cw.editorial_mentions("we went to a gay bar once") == 1
     assert cw.editorial_mentions(
         "the gay pastor story, gay clergy, gay congregations"
     ) >= cw.MIN_EDITORIAL_MENTIONS
     assert cw.editorial_mentions("", title="Gay gay gay pastor") >= cw.MIN_EDITORIAL_MENTIONS
+
+
+def test_subject_matter_is_not_a_gate_on_the_description_path():
+    """Same premise as the caption path: who is talking, not which words."""
+    blurb = ("Full breakdown of the Nolan Wells grand jury decision, the "
+             "district attorney statement in full, and what the family says "
+             "they are going to do next.")
+    videos = [{"video_id": "v1", "title": "No charges", "published": _iso(2),
+               "description": blurb}]
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript", return_value=""):
+        episode = cw.pick_episode("CID")
+    assert episode["video_id"] == "v1"
+    assert cw.editorial_mentions(blurb, episode["title"]) == 0
 
 
 def test_pick_episode_caps_transcript_fetches_per_channel():
@@ -289,9 +410,10 @@ def test_pick_episode_caps_transcript_fetches_per_channel():
     assert fetch.call_count == cw.MAX_TRANSCRIPT_ATTEMPTS
 
 
-def test_pick_episode_gives_up_once_yt_dlp_looks_blocked():
+def test_pick_episode_stops_fetching_once_yt_dlp_looks_blocked():
     """A bot-walled yt-dlp looks identical to "no captions" — but retrying it
-    across every channel burns minutes of two-minute timeouts for nothing."""
+    across every channel burns minutes of two-minute timeouts for nothing. The
+    walk-back continues regardless, because the description path is free."""
     budget = cw._FetchBudget(max_consecutive_failures=1)
     budget.record(usable=False)
     assert budget.exhausted
@@ -300,6 +422,124 @@ def test_pick_episode_gives_up_once_yt_dlp_looks_blocked():
          mock.patch.object(cw, "fetch_transcript") as fetch:
         assert cw.pick_episode("CID", budget=budget) is None
     fetch.assert_not_called()
+
+
+# ── description fallback ─────────────────────────────────────────────────────
+
+def _blurb(extra: str = "") -> str:
+    """A description long enough to use and clearly about the beat."""
+    return ("Tonight we break down the school board vote, the gay pastor who "
+            "lost his congregation, and the trans woman suing the district. "
+            + extra)
+
+
+def test_description_topics_register_on_a_single_mention():
+    """Captions need recurrence to filter rambling; a description says each
+    thing once on purpose, so one mention has to count or there is no signal."""
+    topics = cw.extract_topics("", video_title="Tonight", description=_blurb())
+    assert "pastor" in topics
+    assert "district" in topics
+    assert "congregation" in topics
+
+
+def test_accept_terms_are_phrase_precise():
+    """"transit" and "transport" would otherwise read as coverage. Worth pinning
+    because this precision is why a vocabulary test could never have worked as a
+    gate on short text."""
+    assert cw.editorial_mentions("the trans athlete ban passed") == 0
+    assert cw.editorial_mentions("the trans woman who sued") == 1
+
+
+def test_description_promo_lines_are_not_topics():
+    """Descriptions are half link tree. Recurrence cannot filter it, so the
+    URL lines and promo vocabulary are dropped outright."""
+    description = (
+        "The school board banned the books.\n"
+        "Subscribe: https://youtube.com/@channel\n"
+        "My merch store: www.example.com/merch\n"
+        "#trending #viral\n"
+        "Business inquiries: someone@example.com\n"
+    )
+    topics = cw.extract_topics("", description=description)
+    assert "board" in topics
+    assert "books" in topics
+    for promo in ("youtube", "merch", "trending", "inquiries", "example"):
+        assert promo not in topics
+
+
+def test_pick_episode_falls_back_to_description_when_captions_are_blocked():
+    """The whole point of the API path: on CI captions never arrive, so without
+    this every watched channel produces nothing."""
+    videos = [{"video_id": "e1", "title": "Live tonight", "published": _iso(2),
+               "description": _blurb()}]
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript", return_value=""):
+        episode = cw.pick_episode("CID", label="Chan")
+
+    assert episode is not None
+    assert episode["video_id"] == "e1"
+    # Captions are what we did not get; nothing may be invented in their place.
+    assert episode["transcript"] == ""
+    assert cw.extract_topics("", video_title=episode["title"],
+                             description=episode["description"])
+
+
+def test_captions_still_win_when_they_are_available():
+    """The description is a fallback, not a replacement — a real transcript
+    carries far more signal, so it must take precedence."""
+    videos = [{"video_id": "e1", "title": "Live", "published": _iso(2),
+               "description": _blurb()}]
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript",
+                           return_value=_on_beat(cw.MIN_TRANSCRIPT_WORDS)):
+        episode = cw.pick_episode("CID")
+    assert episode["transcript"] != ""
+
+
+def test_a_thin_description_is_not_an_episode():
+    """Otherwise every Short with a one-line blurb becomes the channel's signal."""
+    videos = [{"video_id": "s1", "title": "Clip", "published": _iso(2),
+               "description": "gay"}]
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript", return_value=""):
+        assert cw.pick_episode("CID") is None
+
+
+def test_vlog_filler_loses_downstream_rather_than_at_the_gate():
+    """Dropping the subject test means a vacation vlog can now become an
+    episode. It must still not steer the digest — the protection just moved to
+    the topic-agnostic gates, which is where it belongs."""
+    vlog = ("We finally made it to Antigua for the week. Boat day, the beach "
+            "bar, and my sister burned the rice again for everyone.")
+    videos = [{"video_id": "v1", "title": "In Antigua", "published": _iso(2),
+               "description": vlog}]
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript", return_value=""):
+        episode = cw.pick_episode("CID")
+    assert episode is not None
+
+    topics = cw.extract_topics("", video_title=episode["title"],
+                               description=vlog)
+    # A 30-story digest of queer news shares at most one word with a beach
+    # vlog, and one overlap is coincidence, not coverage.
+    digest = _digest(*[(f"Queer story {i} on the pastor ruling", "", 0.5)
+                       for i in range(30)])
+    signals = {"Chan": {"video_id": "v1", "title": episode["title"],
+                        "published": "p", "topics": topics}}
+    boosted = cw.boost_candidates(digest, signals)
+    assert not any(row.get("creator_signal") for row in boosted["items"])
+
+
+def test_a_blocked_yt_dlp_still_produces_signal(tmp_path):
+    """End to end: captions unavailable for every channel, signal anyway."""
+    videos = [{"video_id": "e1", "title": "Live tonight", "published": _iso(2),
+               "description": _blurb()}]
+    with mock.patch.object(cw, "recent_videos", return_value=videos), \
+         mock.patch.object(cw, "fetch_transcript", return_value=""):
+        signals = cw.creator_topic_signals(tmp_path / "state.json")
+
+    assert len(signals) == len(cw.WATCHED_CHANNELS)
+    assert all(s["topics"] for s in signals.values())
 
 
 def test_fetch_budget_resets_after_a_usable_transcript():
@@ -400,34 +640,84 @@ def test_a_short_posted_after_the_episode_does_not_discard_it(tmp_path):
     fetch.assert_not_called()
 
 
-def test_an_unusable_new_upload_falls_back_to_the_remembered_episode(tmp_path):
-    """A vacation vlog posted after the real episode shouldn't cost the channel
-    its signal — it should just fail to replace it."""
+def test_an_unreadable_new_upload_falls_back_to_the_remembered_episode(tmp_path):
+    """An upload we cannot read at all — no captions, no description, which two
+    of the six channels really do post — must not cost the channel its signal.
+    It should simply fail to replace what we already have."""
     state = tmp_path / "state.json"
-    on_beat = _on_beat(500)
-    off_beat = " ".join(["sandwich", "camera", "beach"] * 200)
 
     with mock.patch.object(cw, "WATCHED_CHANNELS", {"Dineva": "CID"}):
         with mock.patch.object(cw, "recent_videos",
                                return_value=_videos(("live1", "The episode"))), \
-             mock.patch.object(cw, "fetch_transcript", return_value=on_beat):
+             mock.patch.object(cw, "fetch_transcript",
+                               return_value=_on_beat(500)):
             cw.creator_topic_signals(state)
 
-        newer = _videos(("vlog", "Antigua day 3"), ("live1", "The episode"))
+        # Newer, but blank: nothing to mine.
+        newer = [{"video_id": "blank", "title": "Ts Madison COUNTERFIT",
+                  "published": _iso(1), "description": ""},
+                 {"video_id": "live1", "title": "The episode",
+                  "published": _iso(2), "description": ""}]
         with mock.patch.object(cw, "recent_videos", return_value=newer), \
-             mock.patch.object(cw, "fetch_transcript", return_value=off_beat):
+             mock.patch.object(cw, "fetch_transcript", return_value=""):
             signals = cw.creator_topic_signals(state)
 
     assert signals["Dineva"]["video_id"] == "live1"
 
 
-def test_a_remembered_episode_expires_once_it_leaves_the_window():
+def test_a_newer_episode_replaces_the_remembered_one_whatever_its_subject(tmp_path):
+    """The flip side of dropping the subject test: tonight's true-crime episode
+    is what the room is actually talking about, so it takes over."""
+    state = tmp_path / "state.json"
+
+    with mock.patch.object(cw, "WATCHED_CHANNELS", {"Dineva": "CID"}):
+        with mock.patch.object(cw, "recent_videos",
+                               return_value=_videos(("live1", "The pastor episode"))), \
+             mock.patch.object(cw, "fetch_transcript",
+                               return_value=_on_beat(500)):
+            cw.creator_topic_signals(state)
+
+        newer = _videos(("live2", "Nolan Wells grand jury"), ("live1", "The pastor episode"))
+        with mock.patch.object(cw, "recent_videos", return_value=newer), \
+             mock.patch.object(cw, "fetch_transcript",
+                               return_value="word " * (cw.MIN_TRANSCRIPT_WORDS + 50)):
+            signals = cw.creator_topic_signals(state)
+
+    assert signals["Dineva"]["video_id"] == "live2"
+
+
+def test_a_remembered_episode_expires_only_once_the_channel_looks_dormant():
     """Otherwise a channel that stopped posting would lift stories forever."""
     fresh = {"video_id": "a", "title": "t", "published": _iso(10), "topics": ["x"]}
     stale = {"video_id": "b", "title": "t",
-             "published": _iso(cw.MAX_VIDEO_AGE_HOURS + 12), "topics": ["y"]}
+             "published": _iso(cw.MAX_REMEMBERED_AGE_HOURS + 12), "topics": ["y"]}
     kept = cw.prune_state({"FRESH": fresh, "STALE": stale})
     assert list(kept) == ["FRESH"]
+
+
+def test_a_weekly_show_keeps_contributing_between_airings():
+    """The regression this separation fixes: expiry used to run on the discovery
+    window, so Outlaws (7-day worst gap), Armon Wiggins (6-day) and two others
+    lost their episode before the next one aired."""
+    # Past the window we look for *new* uploads in, but not dormant.
+    week_old = {"video_id": "a", "title": "t",
+                "published": _iso(cw.MAX_VIDEO_AGE_HOURS + 48), "topics": ["x"]}
+    assert cw.prune_state({"C": week_old}) == {"C": week_old}
+
+
+def test_remembered_episodes_outlive_the_discovery_window():
+    # The two answer different questions and must not be collapsed again.
+    assert cw.MAX_REMEMBERED_AGE_HOURS > cw.MAX_VIDEO_AGE_HOURS
+    # Clears the worst real gap measured across the six channels (168h).
+    assert cw.MAX_REMEMBERED_AGE_HOURS >= 168
+
+
+def test_api_timestamps_are_parseable_by_prune_state():
+    """The Data API stamps times with "Z"; state now carries those verbatim."""
+    entry = {"video_id": "a", "title": "t", "topics": ["x"],
+             "published": datetime.now(timezone.utc).isoformat()
+                          .replace("+00:00", "Z")}
+    assert cw.prune_state({"C": entry}) == {"C": entry}
 
 
 def test_undated_state_entries_are_dropped_rather_than_trusted():
@@ -445,7 +735,8 @@ def test_unreadable_state_is_not_fatal(tmp_path):
 def test_window_is_wide_enough_for_a_five_nights_a_week_channel():
     # Guards the actual regression: at 36h a Tuesday episode was already gone
     # by Thursday's 8pm run. 96h covers a mid-week miss; 120h also covers a
-    # weekend gap for a channel that posts ~5 nights a week.
+    # weekend gap for a channel that posts ~5 nights a week. Spanning longer
+    # gaps than that is MAX_REMEMBERED_AGE_HOURS' job, not this one's.
     assert cw.MAX_VIDEO_AGE_HOURS >= 96
 
 

@@ -60,6 +60,11 @@ jobs:
     env:
       PYTHONPATH: creator-studio
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      # Creator Watch reads the watched channels' recent uploads. Required here
+      # rather than optional: YouTube answers 404 to the public RSS feed for
+      # datacenter IPs, so without this key every channel silently produces no
+      # signal on CI and the show falls back to RSS-news-only ranking.
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       # How many vertical Shorts to cut per night. Deliberately small:
       # YouTube's inauthentic-content policy treats high-volume,
       # template-identical uploads as mass production, and that judgement is
