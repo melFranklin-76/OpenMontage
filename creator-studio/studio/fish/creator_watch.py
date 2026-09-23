@@ -1,10 +1,11 @@
-"""Watch peer creators' latest episodes and boost overlapping FISH stories.
+"""Watch peer creators' latest episodes and let overlapping stories lead the show.
 
-The show keeps an ear on a small set of peer commentary channels. Each night,
+The show keeps an ear on a set of peer commentary channels. Each night,
 before the digest ranks stories, we find each watched channel's most recent
 real episode, pull its auto-generated captions (text only — no video download),
-and extract the topics they spent time on. Any story in our own RSS digest that
-overlaps those topics gets a relevance boost: their signal, our stories.
+and extract the topics they spent time on. Stories in our own RSS digest that
+overlap those topics become tonight's agenda: they rank above RSS-only items.
+We still never reuse their footage, audio, or words.
 
 "Most recent episode" is not the same as "most recent upload": these channels
 post several times a day, the newest slot is usually a Short, and a long
@@ -42,7 +43,7 @@ from pathlib import Path
 
 from .broll import _STOPWORDS
 from .filter import ACCEPT_TERMS
-from .story_memory import sort_stories
+from .story_memory import recency_sort_key
 
 # Channels the show watches. Keys are display names for the report artifact.
 # TS Madison runs two separate channels and they carry different material:
@@ -52,6 +53,9 @@ WATCHED_CHANNELS = {
     "Outlaws with TS Madison": "UCsOACvK3jQaqeNsWfiW_kUg",
     "Ts Madison": "UCE81T3u_YFLIJM6xxp7YJvg",
     "Funky Dineva": "UChIkZ9tdYNG78qoFF6oWSvA",
+    "Armon Wiggins": "UCl8dvxZaiUtttyDBgIujocw",
+    "Thai Rivera": "UCpzSy79UDdn0i-uVGOPyTLQ",
+    "Amir Odom": "UCu28JGd1UDoQRlZZtG5Qrcw",
 }
 
 # Freshness window. This used to be 36h, which silently assumed every watched
@@ -95,8 +99,10 @@ MIN_EDITORIAL_MENTIONS = 3
 DEFAULT_STATE_PATH = Path("creator-studio/out/fish/creator_watch_state.json")
 
 # Scoring: each matched topic adds BOOST_PER_TOPIC to a story's relevance,
-# up to MAX_BOOST total. Small on purpose — peer overlap should break ties
-# and lift a mid-ranked story, not override our own editorial ranking.
+# up to MAX_BOOST total. That still breaks ties among room stories.
+# Ranking itself is agenda-first: any story that overlaps enough creator
+# topics sorts above RSS-only items, because option C is "the room decides
+# what we talk about," not "nudge a mid-ranked headline."
 # A single shared word is coincidence, not coverage: a live run showed
 # one-word overlaps boosting half the digest, so a boost requires at least
 # MIN_MATCHED_TOPICS distinct topics in common.
@@ -531,11 +537,28 @@ def discriminative_topics(topics: list[str], story_words: list[set[str]]) -> lis
             if sum(t in words for words in story_words) <= ceiling]
 
 
-def boost_candidates(digest: dict, signals: dict[str, dict]) -> dict:
-    """Boost digest stories whose text overlaps watched creators' topics.
+def sort_by_agenda(items: list[dict]) -> list[dict]:
+    """Room overlap first, then relevance, then recency.
 
-    Mutates and returns the digest. Each boosted story records which channel
-    and topics lifted it (`creator_signal`) so the ordering stays explainable.
+    A 0.70 story two creators hit tonight outranks a 1.0 RSS-only headline.
+    """
+    return sorted(
+        items,
+        key=lambda row: (
+            (row.get("creator_signal") or {}).get("channel_count", 0),
+            row.get("relevance_score", 0.0),
+            recency_sort_key(row),
+        ),
+        reverse=True,
+    )
+
+
+def boost_candidates(digest: dict, signals: dict[str, dict]) -> dict:
+    """Mark RSS stories that overlap watched creators and rank those first.
+
+    Mutates and returns the digest. Each overlapping story records which
+    channels and topics lifted it (`creator_signal`) so the ordering stays
+    explainable. RSS-only stories remain, below the agenda.
     """
     if not signals:
         return digest
@@ -556,23 +579,35 @@ def boost_candidates(digest: dict, signals: dict[str, dict]) -> dict:
             usable[channel] = kept
 
     for item, story_words in zip(items, all_story_words):
-        best: tuple[str, list[str]] | None = None
+        matches: list[tuple[str, list[str]]] = []
         for channel, topics in usable.items():
             matched = [t for t in topics if t in story_words]
-            if len(matched) >= MIN_MATCHED_TOPICS and (
-                    best is None or len(matched) > len(best[1])):
-                best = (channel, matched)
-        if best:
-            channel, matched = best
-            boost = min(len(matched) * BOOST_PER_TOPIC, MAX_BOOST)
-            item["relevance_score"] = round(item["relevance_score"] + boost, 3)
-            item["creator_signal"] = {
-                "channel": channel,
-                "matched_topics": matched[:6],
-                "boost": boost,
-            }
+            if len(matched) >= MIN_MATCHED_TOPICS:
+                matches.append((channel, matched))
+        if not matches:
+            continue
+        matches.sort(key=lambda row: len(row[1]), reverse=True)
+        topics: list[str] = []
+        seen: set[str] = set()
+        for _channel, matched in matches:
+            for topic in matched:
+                if topic not in seen:
+                    seen.add(topic)
+                    topics.append(topic)
+        boost = min(len(topics) * BOOST_PER_TOPIC, MAX_BOOST)
+        item["relevance_score"] = round(item["relevance_score"] + boost, 3)
+        item["creator_signal"] = {
+            "channel": matches[0][0],
+            "channels": [name for name, _matched in matches],
+            "channel_count": len(matches),
+            "matched_topics": topics[:8],
+            "boost": boost,
+        }
 
-    digest["items"] = sort_stories(digest["items"])
+    digest["items"] = sort_by_agenda(digest["items"])
+    digest["agenda"] = sorted({
+        topic for topics in usable.values() for topic in topics
+    })
     digest["creator_watch"] = {
         name: {"video_id": s["video_id"], "title": s["title"],
                # Only surviving topics could move ranking — recording the raw

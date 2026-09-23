@@ -18,7 +18,6 @@ from .story_memory import (
     load_state,
     record_used,
     save_state,
-    sort_stories,
 )
 
 
@@ -104,7 +103,8 @@ def main() -> int:
     parser.add_argument(
         "--creator-watch",
         action="store_true",
-        help="Boost stories overlapping watched creators' latest episode topics",
+        help="Let watched creators' latest episode topics steer tonight's "
+             "ranking: overlapping RSS stories become the agenda",
     )
     parser.add_argument(
         "--creator-watch-state",
@@ -145,11 +145,11 @@ def main() -> int:
     digest = build_daily_candidates(items, used_state=used_state)
 
     if args.creator_watch:
-        from .creator_watch import boost_candidates, creator_topic_signals
+        from .creator_watch import boost_candidates, creator_topic_signals, sort_by_agenda
         state_path = (Path(args.creator_watch_state)
                       if args.creator_watch_state else None)
         digest = boost_candidates(digest, creator_topic_signals(state_path))
-        digest["items"] = sort_stories(digest.get("items", []))
+        digest["items"] = sort_by_agenda(digest.get("items", []))
 
     if used_path is not None and args.record_used > 0:
         used_state = record_used(

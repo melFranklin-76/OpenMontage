@@ -68,8 +68,51 @@ def test_boost_candidates_lifts_overlapping_story_and_reorders():
     top = out["items"][0]
     assert top["title"].startswith("Gay pastor")
     assert top["creator_signal"]["channel"] == "Funky Dineva"
+    assert top["creator_signal"]["channel_count"] == 1
     assert top["relevance_score"] > 0.90
     assert out["creator_watch"]["Funky Dineva"]["topics"]
+    assert "pastor" in out["agenda"]
+
+
+def test_room_overlap_outranks_higher_rss_score():
+    """Option C: the room sets the agenda. A mid-score overlap leads the night."""
+    digest = _digest(
+        ("Black trans organizer wins Milwaukee race", "city hall", 1.0),
+        ("Gay pastor pushed out over tithes post", "church facebook dispute", 0.70),
+    )
+    out = cw.boost_candidates(digest, SIGNALS)
+    assert out["items"][0]["title"].startswith("Gay pastor")
+    assert out["items"][1]["title"].startswith("Black trans")
+    assert "creator_signal" not in out["items"][1]
+
+
+def test_two_channels_on_same_story_rank_above_one():
+    digest = _digest(
+        ("Gay pastor pushed out over tithes post", "church facebook dispute", 0.70),
+        ("School board bans library books", "parents protest downtown", 0.99),
+    )
+    signals = {
+        "Funky Dineva": {
+            "video_id": "a", "title": "ep", "published": "",
+            "topics": ["pastor", "tithes", "church", "facebook"],
+        },
+        "Armon Wiggins": {
+            "video_id": "b", "title": "ep", "published": "",
+            "topics": ["pastor", "tithes", "court"],
+        },
+        "Thai Rivera": {
+            "video_id": "c", "title": "ep", "published": "",
+            "topics": ["school", "library", "books"],
+        },
+    }
+    out = cw.boost_candidates(digest, signals)
+    assert out["items"][0]["title"].startswith("Gay pastor")
+    assert out["items"][0]["creator_signal"]["channel_count"] == 2
+    assert set(out["items"][0]["creator_signal"]["channels"]) == {
+        "Funky Dineva", "Armon Wiggins",
+    }
+    assert out["items"][1]["title"].startswith("School board")
+    assert out["items"][1]["creator_signal"]["channel_count"] == 1
 
 
 def test_boost_is_capped():
@@ -99,6 +142,9 @@ def test_watched_channels_configured():
     assert cw.WATCHED_CHANNELS["Outlaws with TS Madison"] == "UCsOACvK3jQaqeNsWfiW_kUg"
     assert cw.WATCHED_CHANNELS["Ts Madison"] == "UCE81T3u_YFLIJM6xxp7YJvg"
     assert cw.WATCHED_CHANNELS["Funky Dineva"] == "UChIkZ9tdYNG78qoFF6oWSvA"
+    assert cw.WATCHED_CHANNELS["Armon Wiggins"] == "UCl8dvxZaiUtttyDBgIujocw"
+    assert cw.WATCHED_CHANNELS["Thai Rivera"] == "UCpzSy79UDdn0i-uVGOPyTLQ"
+    assert cw.WATCHED_CHANNELS["Amir Odom"] == "UCu28JGd1UDoQRlZZtG5Qrcw"
 
 
 # ── feed scanning ────────────────────────────────────────────────────────────
