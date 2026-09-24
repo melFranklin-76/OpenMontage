@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
@@ -283,6 +285,36 @@ def test_recent_videos_falls_back_to_rss_when_the_api_fails(monkeypatch):
         videos = cw.recent_videos("UCabc")
     rss.assert_called_once()
     assert [v["video_id"] for v in videos] == ["v1"]
+
+
+def test_an_api_rejection_logs_googles_own_explanation(monkeypatch, capsys):
+    """A bare "HTTP Error 400" sends whoever reads the log hunting.
+
+    Google distinguishes a malformed key from a project that never enabled the
+    API, but only in the response body — and both arrive as a 400.
+    """
+    monkeypatch.setenv(cw.API_KEY_ENV, "not-a-real-key")
+    body = json.dumps({"error": {
+        "message": "API key not valid. Please pass a valid API key.",
+        "errors": [{"reason": "badRequest"}],
+    }}).encode()
+    failure = urllib.error.HTTPError(
+        "https://example.invalid", 400, "Bad Request", {}, io.BytesIO(body))
+
+    with mock.patch("urllib.request.urlopen", side_effect=failure), \
+         mock.patch.object(cw, "_videos_via_rss", return_value=[]):
+        cw.recent_videos("UCabc")
+
+    logged = capsys.readouterr().err
+    assert "API key not valid" in logged
+    assert "badRequest" in logged
+
+
+def test_explaining_a_failure_never_raises_on_an_unreadable_body():
+    """Diagnostics must not become a second failure."""
+    failure = urllib.error.HTTPError(
+        "https://example.invalid", 403, "Forbidden", {}, io.BytesIO(b"<html>"))
+    assert cw._api_error_reason(failure) == "no detail in response body"
 
 
 def test_an_empty_api_result_is_not_treated_as_a_failure(monkeypatch):
