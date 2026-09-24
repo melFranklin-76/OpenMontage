@@ -41,6 +41,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -238,6 +239,25 @@ def _within_window(videos: list[dict], limit: int,
     return kept
 
 
+def _api_error_reason(exc: "urllib.error.HTTPError") -> str:
+    """The human-readable cause out of a Google API error body.
+
+    Best effort: a failure to explain a failure must not itself raise.
+    """
+    try:
+        body = json.loads(exc.read().decode("utf-8", errors="replace"))
+    except Exception:  # noqa: BLE001
+        return "no detail in response body"
+    error = body.get("error") or {}
+    message = error.get("message") or ""
+    reasons = [
+        d.get("reason") for d in (error.get("errors") or []) if d.get("reason")
+    ]
+    if message and reasons:
+        return f"{message} (reason: {', '.join(reasons)})"
+    return message or "no detail in response body"
+
+
 def _videos_via_api(channel_id: str, key: str, timeout: int,
                     limit: int) -> list[dict] | None:
     """Recent uploads via the YouTube Data API, newest first.
@@ -251,6 +271,14 @@ def _videos_via_api(channel_id: str, key: str, timeout: int,
         req = urllib.request.Request(url, headers={"User-Agent": "fish-pipeline/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        # Google puts the real cause in the response body — "API key not valid"
+        # and "YouTube Data API v3 has not been used in project N" both arrive
+        # as a bare 400/403. Logging only the status sends whoever reads this
+        # hunting, so surface the message itself.
+        print(f"[creator_watch] Data API failed for {channel_id}: "
+              f"{exc} — {_api_error_reason(exc)}", file=sys.stderr)
+        return None
     except Exception as exc:  # noqa: BLE001
         print(f"[creator_watch] Data API failed for {channel_id}: {exc}",
               file=sys.stderr)
